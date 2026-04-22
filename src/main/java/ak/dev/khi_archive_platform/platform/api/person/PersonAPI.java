@@ -43,7 +43,7 @@ public class PersonAPI {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<PersonResponseDTO> create(
             @RequestPart("data") String dataJson,
-            @RequestPart(value = "image", required = false) MultipartFile mediaPortrait,
+            @RequestPart("mediaPortrait") MultipartFile mediaPortrait,
             Authentication auth,
             HttpServletRequest request
     ) {
@@ -55,7 +55,7 @@ public class PersonAPI {
     public ResponseEntity<PersonResponseDTO> update(
             @PathVariable String personCode,
             @RequestPart("data") String dataJson,
-            @RequestPart(value = "image", required = false) MultipartFile mediaPortrait,
+            @RequestPart(value = "mediaPortrait", required = false) MultipartFile mediaPortrait,
             Authentication auth,
             HttpServletRequest request
     ) {
