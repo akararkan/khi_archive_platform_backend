@@ -115,7 +115,7 @@ public class UserService implements UserDetailsService {
                     .username(dto.getUsername())
                     .email(dto.getEmail())
                     .password(passwordEncoder.encode(dto.getPassword()))
-                    .role(Role.GUEST)
+                    .role(Role.EMPLOYEE)
                     .provider("local")
                     .isActivated(true)
                     .profileImage(storedImagePath)  // Set local profile image path
@@ -357,7 +357,7 @@ public class UserService implements UserDetailsService {
                         .username(dto.getUsername())
                         .email(dto.getEmail())
                         .password(passwordEncoder.encode(dto.getPassword()))
-                        .role(dto.getRole() != null ? dto.getRole() : Role.GUEST)
+                        .role(dto.getRole() != null ? dto.getRole() : Role.EMPLOYEE)
                         .provider("local")
                         .profileImage(imagePath)
                         .isActivated(dto.getIsActivated() != null ? dto.getIsActivated() : true)

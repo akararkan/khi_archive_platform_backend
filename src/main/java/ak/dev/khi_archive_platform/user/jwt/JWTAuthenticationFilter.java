@@ -1,6 +1,8 @@
 package ak.dev.khi_archive_platform.user.jwt;
 
+import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponse;
 import com.auth0.jwt.exceptions.TokenExpiredException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 
 import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.*;
@@ -36,6 +39,7 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
     private final UserDetailsService userDetailsService;
     private final TokenService tokenService;
     private final JwtCookieService jwtCookieService;
+    private final ObjectMapper objectMapper;
 
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
@@ -63,12 +67,12 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
             } catch (TokenExpiredException ex) {
                 logger.warn("Token expired for request: {}", request.getRequestURI());
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_EXPIRED", "Session expired, please login again");
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_EXPIRED", "Session expired, please login again", request.getRequestURI());
                 return;
             } catch (Exception ex) {
                 logger.error("Invalid token", ex);
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.FORBIDDEN, "INVALID_TOKEN", "Invalid token");
+                sendErrorResponse(response, HttpStatus.FORBIDDEN, "INVALID_TOKEN", "Invalid token", request.getRequestURI());
                 return;
             }
 
@@ -76,7 +80,7 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
             if (tokenService.isTokenBlacklisted(token)) {
                 logger.warn("Token blacklisted for user: {}", username);
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED", "Session invalidated, please login again");
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED", "Session invalidated, please login again", request.getRequestURI());
                 return;
             }
 
@@ -97,17 +101,25 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
 
         } catch (Exception ex) {
             logger.error("Unexpected error in JWT filter", ex);
-            sendErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR, "SERVER_ERROR", "Internal server error");
+            sendErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR, "SERVER_ERROR", "Internal server error", request.getRequestURI());
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private void sendErrorResponse(HttpServletResponse response, HttpStatus status, String error, String message) throws IOException {
+    private void sendErrorResponse(HttpServletResponse response, HttpStatus status, String error, String message, String path) throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(String.format("{\"error\":\"%s\",\"message\":\"%s\"}", error, message));
+        response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+        objectMapper.writeValue(response.getWriter(), new ApiErrorResponse(
+                Instant.now(),
+                status.value(),
+                error,
+                message,
+                path,
+                null
+        ));
     }
 
     private boolean hasText(String str) {

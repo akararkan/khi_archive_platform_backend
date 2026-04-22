@@ -13,6 +13,8 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import ak.dev.khi_archive_platform.user.exceptions.JwtAccessDeniedHandler;
+import ak.dev.khi_archive_platform.user.exceptions.JwtAuthenticationEntryPoint;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -26,6 +28,8 @@ public class SecurityConfig {
     private final JWTAuthenticationFilter            jwtAuthenticationFilter;
     private final AuthenticationProvider             authenticationProvider;
     private final AppCorsProperties                  corsProperties;
+    private final JwtAuthenticationEntryPoint        jwtAuthenticationEntryPoint;
+    private final JwtAccessDeniedHandler             jwtAccessDeniedHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) {
@@ -38,6 +42,11 @@ public class SecurityConfig {
                 )
 
                 .authenticationProvider(authenticationProvider)
+
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                        .accessDeniedHandler(jwtAccessDeniedHandler)
+                )
 
                 .authorizeHttpRequests(auth -> auth
 

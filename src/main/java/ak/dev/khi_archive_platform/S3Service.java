@@ -36,6 +36,9 @@ public class S3Service {
     @Value("${aws.s3.region}")
     private String region;
 
+    @Value("${aws.s3.person-folder:persons}")
+    private String personFolder;
+
     private static final String DEFAULT_FOLDER = "files";
     private static final String PROFILE_FOLDER = "user_profile_images";
 
@@ -89,6 +92,25 @@ public class S3Service {
 
     public String uploadProfileImage(MultipartFile file) {
         return upload(file, PROFILE_FOLDER);
+    }
+
+    public String uploadPersonPortrait(byte[] fileBytes, String originalFilename, String contentType, String personCode) {
+        String safePersonCode = normalizeFolder(personCode);
+        return upload(fileBytes, personFolder + "/" + safePersonCode, originalFilename, contentType);
+    }
+
+    public String uploadPersonPortrait(MultipartFile file, String personCode) {
+        if (file == null || file.isEmpty()) {
+            throw new UserStorageException("File is empty.");
+        }
+
+        try {
+            String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "portrait";
+            return uploadPersonPortrait(file.getBytes(), originalFilename, file.getContentType(), personCode);
+        } catch (IOException e) {
+            log.error("Failed to read MultipartFile for person portrait upload", e);
+            throw new UserStorageException("Failed to read uploaded file.", e);
+        }
     }
 
     // ============================================================

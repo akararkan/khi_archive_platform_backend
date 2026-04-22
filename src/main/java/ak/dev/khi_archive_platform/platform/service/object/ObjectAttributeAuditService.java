@@ -1,0 +1,123 @@
+package ak.dev.khi_archive_platform.platform.service.object;
+
+import ak.dev.khi_archive_platform.platform.enums.ArchiveObjectAuditAction;
+import ak.dev.khi_archive_platform.platform.model.object.ObjectAttribute;
+import ak.dev.khi_archive_platform.platform.model.object.ObjectAttributeAuditLog;
+import ak.dev.khi_archive_platform.platform.repo.object.ObjectAttributeAuditLogRepository;
+import ak.dev.khi_archive_platform.user.jwt.JwtCookieService;
+import ak.dev.khi_archive_platform.user.jwt.JwtTokenProvider;
+import ak.dev.khi_archive_platform.user.model.Session;
+import ak.dev.khi_archive_platform.user.model.User;
+import ak.dev.khi_archive_platform.user.repo.SessionRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.Authentication;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.HtmlUtils;
+
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
+import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.TOKEN_PREFIX;
+
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@SuppressWarnings("unused")
+public class ObjectAttributeAuditService {
+
+    private final ObjectAttributeAuditLogRepository auditLogRepository;
+    private final SessionRepository sessionRepository;
+    private final JwtCookieService jwtCookieService;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ObjectAttributeAuditLog record(ObjectAttribute object,
+                                          ArchiveObjectAuditAction action,
+                                          Authentication authentication,
+                                          HttpServletRequest request,
+                                          String details) {
+        Session session = resolveSession(request);
+        User actorUser = resolveActorUser(authentication);
+
+        ObjectAttributeAuditLog log = ObjectAttributeAuditLog.builder()
+                .objectId(object != null ? object.getId() : null)
+                .objectCode(object != null ? object.getObjectCode() : null)
+                .objectName(object != null ? object.getObjectName() : null)
+                .action(action)
+                .actorUserId(actorUser != null ? actorUser.getUserId() : null)
+                .actorUsername(actorUser != null ? actorUser.getUsername() : (authentication != null ? authentication.getName() : "anonymous"))
+                .actorDisplayName(actorUser != null ? actorUser.getName() : (authentication != null ? authentication.getName() : "anonymous"))
+                .actorAuthorities(resolveAuthorities(authentication))
+                .actorPermissions(resolvePermissions(authentication))
+                .deviceInfo(session != null ? session.getDeviceInfo() : request.getHeader("User-Agent"))
+                .ipAddress(session != null ? session.getIpAddress() : request.getRemoteAddr())
+                .requestMethod(request.getMethod())
+                .requestPath(request.getRequestURI())
+                .details(details == null ? null : HtmlUtils.htmlEscape(details))
+                .occurredAt(java.time.Instant.now())
+                .build();
+
+        return auditLogRepository.save(log);
+    }
+
+    private Session resolveSession(HttpServletRequest request) {
+        String token = resolveToken(request);
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+
+        String sessionId = jwtTokenProvider.getSessionIdFromToken(token);
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+
+        return sessionRepository.findBySessionId(sessionId).orElse(null);
+    }
+
+    private String resolveToken(HttpServletRequest request) {
+        String authorizationHeader = request.getHeader(AUTHORIZATION);
+        if (authorizationHeader != null && authorizationHeader.startsWith(TOKEN_PREFIX)) {
+            return authorizationHeader.substring(TOKEN_PREFIX.length()).trim();
+        }
+        return jwtCookieService.resolveToken(request);
+    }
+
+    private User resolveActorUser(Authentication authentication) {
+        if (authentication == null) {
+            return null;
+        }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof User user) {
+            return user;
+        }
+        return null;
+    }
+
+    private String resolveAuthorities(Authentication authentication) {
+        if (authentication == null) {
+            return null;
+        }
+
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .filter(authority -> authority != null && !authority.isBlank())
+                .distinct()
+                .collect(Collectors.joining(","));
+    }
+
+    private String resolvePermissions(Authentication authentication) {
+        if (authentication == null) {
+            return null;
+        }
+
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .filter(authority -> authority != null && !authority.isBlank() && !authority.startsWith("ROLE_"))
+                .distinct()
+                .collect(Collectors.joining(","));
+    }
+}
+

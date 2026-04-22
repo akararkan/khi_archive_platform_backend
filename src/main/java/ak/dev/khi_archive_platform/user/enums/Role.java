@@ -14,10 +14,6 @@ import static ak.dev.khi_archive_platform.user.enums.Permission.*;
 @RequiredArgsConstructor
 public enum Role {
 
-    // ✅ NEW: Default for self-registered users
-    GUEST(Set.of(
-            USER_READ
-    )),
 
     EMPLOYEE(Set.of(
             USER_CREATE,

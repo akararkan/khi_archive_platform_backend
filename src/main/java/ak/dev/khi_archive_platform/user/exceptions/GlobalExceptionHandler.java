@@ -1,9 +1,13 @@
 package ak.dev.khi_archive_platform.user.exceptions;
 
+import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
@@ -13,19 +17,25 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
-import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestControllerAdvice(basePackages = "ak.dev.khi_archive_platform.user")
+@SuppressWarnings("unused")
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(UserAlreadyExistsException.class)
-    public ResponseEntity<UserApiErrorResponse> handleUserAlreadyExists(
+    public ResponseEntity<ApiErrorResponse> handleUserAlreadyExists(
             UserAlreadyExistsException ex,
             HttpServletRequest request
     ) {
@@ -33,7 +43,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({UserNotFoundException.class, UsernameNotFoundException.class})
-    public ResponseEntity<UserApiErrorResponse> handleUserNotFound(
+    public ResponseEntity<ApiErrorResponse> handleUserNotFound(
             RuntimeException ex,
             HttpServletRequest request
     ) {
@@ -41,7 +51,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({BadCredentialsException.class, AuthenticationException.class})
-    public ResponseEntity<UserApiErrorResponse> handleAuthenticationFailure(
+    public ResponseEntity<ApiErrorResponse> handleAuthenticationFailure(
             RuntimeException ex,
             HttpServletRequest request
     ) {
@@ -49,7 +59,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(org.springframework.security.authentication.LockedException.class)
-    public ResponseEntity<UserApiErrorResponse> handleLocked(
+    public ResponseEntity<ApiErrorResponse> handleLocked(
             org.springframework.security.authentication.LockedException ex,
             HttpServletRequest request
     ) {
@@ -57,7 +67,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<UserApiErrorResponse> handleAccessDenied(
+    public ResponseEntity<ApiErrorResponse> handleAccessDenied(
             AccessDeniedException ex,
             HttpServletRequest request
     ) {
@@ -66,8 +76,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({IllegalArgumentException.class, ConstraintViolationException.class,
             MethodArgumentNotValidException.class, BindException.class,
-            HttpMessageNotReadableException.class})
-    public ResponseEntity<UserApiErrorResponse> handleBadRequest(
+            HttpMessageNotReadableException.class, MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class, MissingServletRequestPartException.class,
+            HttpMediaTypeNotSupportedException.class})
+    public ResponseEntity<ApiErrorResponse> handleBadRequest(
             Exception ex,
             HttpServletRequest request
     ) {
@@ -89,7 +101,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({UserStorageException.class, java.io.IOException.class})
-    public ResponseEntity<UserApiErrorResponse> handleStorageFailure(
+    public ResponseEntity<ApiErrorResponse> handleStorageFailure(
             Exception ex,
             HttpServletRequest request
     ) {
@@ -97,27 +109,45 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({MultipartException.class, MaxUploadSizeExceededException.class})
-    public ResponseEntity<UserApiErrorResponse> handleUploadTooLarge(
+    public ResponseEntity<ApiErrorResponse> handleUploadTooLarge(
             Exception ex,
             HttpServletRequest request
     ) {
-        return build(HttpStatus.PAYLOAD_TOO_LARGE, "UPLOAD_TOO_LARGE", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.valueOf(413), "UPLOAD_TOO_LARGE", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler({DataIntegrityViolationException.class})
+    public ResponseEntity<ApiErrorResponse> handleConflict(DataIntegrityViolationException ex,
+                                                           HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "CONFLICT", rootMessage(ex), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler({DataAccessException.class})
+    public ResponseEntity<ApiErrorResponse> handleDatabaseError(DataAccessException ex,
+                                                                 HttpServletRequest request) {
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", rootMessage(ex), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception ex,
+                                                           HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<UserApiErrorResponse> handleUnexpected(
+    public ResponseEntity<ApiErrorResponse> handleUnexpected(
             Exception ex,
             HttpServletRequest request
     ) {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", "An unexpected error occurred.", request.getRequestURI(), null);
     }
 
-    private ResponseEntity<UserApiErrorResponse> build(HttpStatus status,
-                                                       String error,
-                                                       String message,
-                                                       String path,
-                                                       Map<String, Object> details) {
-        return ResponseEntity.status(status).body(new UserApiErrorResponse(
+    private ResponseEntity<ApiErrorResponse> build(HttpStatus status,
+                                                    String error,
+                                                    String message,
+                                                    String path,
+                                                    Map<String, Object> details) {
+        return ResponseEntity.status(status).body(new ApiErrorResponse(
                 Instant.now(),
                 status.value(),
                 error,
@@ -125,5 +155,13 @@ public class GlobalExceptionHandler {
                 path,
                 details
         ));
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current.getMessage() != null ? current.getMessage() : throwable.getMessage();
     }
 }

@@ -7,6 +7,7 @@ package ak.dev.khi_archive_platform.user.consts;
  * directly inside Jakarta annotation attributes (which require
  * compile-time constants).
  */
+@SuppressWarnings("unused")
 public final class ValidationPatterns {
 
     private ValidationPatterns() {}
@@ -26,20 +27,31 @@ public final class ValidationPatterns {
     public static final String EMAIL =
             "^[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,10}$";
 
-    // ── PASSWORD ──────────────────────────────────────────────────────────────
-    /**
-     * Minimum-length password pattern.
-     * <p>Requires only:
-     * <ul>
-     *   <li>At least <strong>6</strong> characters</li>
-     *   <li>No upper-bound enforced here (use {@code @Size} alongside for max)</li>
-     * </ul>
-     */
-    public static final String PASSWORD = "^.{6,}$";
-
     // ── USERNAME ──────────────────────────────────────────────────────────────
     /** Allows letters, digits, and underscores only (no spaces, no special chars). */
     public static final String USERNAME = "^[A-Za-z0-9_]+$";
+
+    // ── PERSON CODE ───────────────────────────────────────────────────────────
+    /** Person codes must start with {@code KHI_} and then use letters, digits, underscores, or hyphens. */
+    public static final String PERSON_CODE = "^KHI_[A-Za-z0-9_-]+$";
+
+    // ── CATEGORY CODE ─────────────────────────────────────────────────────────
+    /** Category codes are plain strings using letters, digits, underscores, or hyphens. */
+    public static final String CATEGORY_CODE = "^[A-Za-z0-9_-]+$";
+
+    // ── OBJECT CODE ───────────────────────────────────────────────────────────
+    /** Object codes must follow the format {@code KHI_OBJ_CATEGORYCODE_00001}. */
+    public static final String OBJECT_CODE = "^KHI_OBJ_[A-Za-z0-9_-]+_[0-9]{5}$";
+
+    /** Object codes on create may be omitted, so an empty value is also allowed. */
+    public static final String OBJECT_CODE_OR_EMPTY = "^$|^KHI_OBJ_[A-Za-z0-9_-]+_[0-9]{5}$";
+
+    // ── AUDIO CODE ────────────────────────────────────────────────────────────
+    /** Audio codes must follow the format {@code KHI_<NAME>_AUDIO_000001}. */
+    public static final String AUDIO_CODE = "^KHI_[A-Za-z0-9_-]+_AUDIO_[0-9]{6}$";
+
+    /** Legacy alias kept for compatibility with existing code paths. */
+    public static final String OBJECT_CATEGORY_CODE = OBJECT_CODE;
 
     /**
      * Same as {@link #USERNAME} but also accepts an empty string —
