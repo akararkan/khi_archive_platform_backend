@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.stream.Collectors;
-import java.util.Locale;
+
 
 @Service
 @RequiredArgsConstructor
@@ -190,7 +190,7 @@ public class ObjectAttributeService {
 
         String trimmed = objectCode.trim();
         if (!trimmed.matches(ValidationPatterns.OBJECT_CODE)) {
-            throw new IllegalArgumentException("Object code must match format KHI_OBJ_CATEGORYCODE_00001");
+            throw new IllegalArgumentException("Object code must match format OBJ_CATEGORYCODE");
         }
         return trimmed;
     }
@@ -204,20 +204,19 @@ public class ObjectAttributeService {
     private String resolveObjectCodeForCreate(String objectCode, Category category) {
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(category.getCategoryCode());
         if (objectCode == null || objectCode.trim().isBlank()) {
-            long nextSequence = objectRepository.countByCategory(category) + 1;
-            return generateObjectCode(normalizedCategoryCode, nextSequence);
+            return generateObjectCode(normalizedCategoryCode);
         }
 
         String normalizedObjectCode = normalizeObjectCode(objectCode);
-        String expectedPrefix = "KHI_OBJ_" + normalizedCategoryCode + "_";
-        if (!normalizedObjectCode.startsWith(expectedPrefix)) {
-            throw new IllegalArgumentException("Object code must include the selected category code: " + normalizedCategoryCode);
+        String expected = "OBJ_" + normalizedCategoryCode;
+        if (!normalizedObjectCode.equals(expected)) {
+            throw new IllegalArgumentException("Object code must match the selected category code: " + normalizedCategoryCode);
         }
         return normalizedObjectCode;
     }
 
-    private String generateObjectCode(String categoryCode, long sequence) {
-        return "KHI_OBJ_" + categoryCode + "_" + String.format(Locale.ROOT, "%05d", sequence);
+    private String generateObjectCode(String categoryCode) {
+        return "OBJ_" + categoryCode;
     }
 
     private String trimTrailingSeparator(String value) {

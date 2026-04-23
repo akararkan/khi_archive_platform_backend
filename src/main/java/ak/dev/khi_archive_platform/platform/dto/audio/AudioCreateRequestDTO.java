@@ -21,5 +21,23 @@ public class AudioCreateRequestDTO extends AudioBaseRequestDTO {
         boolean hasObject = getObjectCode() != null && !getObjectCode().isBlank();
         return hasPerson ^ hasObject;
     }
+
+    @AssertTrue(message = "Audio version is required and must be RAW or MASTER.")
+    public boolean isAudioVersionValid() {
+        String av = getAudioVersion();
+        return av != null && (av.equalsIgnoreCase("RAW") || av.equalsIgnoreCase("MASTER"));
+    }
+
+    @AssertTrue(message = "Version number is required and must be at least 1.")
+    public boolean isVersionNumberValid() {
+        Integer vn = getVersionNumber();
+        return vn != null && vn >= 1;
+    }
+
+    @AssertTrue(message = "Copy number is required and must be at least 1.")
+    public boolean isCopyNumberValid() {
+        Integer cn = getCopyNumber();
+        return cn != null && cn >= 1;
+    }
 }
 

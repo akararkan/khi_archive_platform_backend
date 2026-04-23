@@ -11,7 +11,7 @@ import lombok.Setter;
 import java.time.Instant;
 
 @Entity
-@Table(name = "archive_objects",
+@Table(name = "object_attributes",
         indexes = {
                 @Index(name = "idx_object_code", columnList = "object_code"),
                 @Index(name = "idx_object_category_id", columnList = "category_id"),

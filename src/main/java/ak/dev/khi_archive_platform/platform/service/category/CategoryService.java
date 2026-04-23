@@ -31,7 +31,7 @@ public class CategoryService {
     public CategoryResponseDTO create(CategoryCreateRequestDTO dto,
                                       Authentication authentication,
                                       HttpServletRequest request) {
-        String categoryCode = resolveCategoryCodeForCreate(dto.getCategoryCode(), dto.getName());
+        String categoryCode = CategoryCodeHelper.normalizeAndValidate(dto.getCategoryCode());
 
         if (categoryRepository.existsByCategoryCodeAndDeletedAtIsNull(categoryCode)) {
             throw new CategoryAlreadyExistsException("Category code already exists");
@@ -130,13 +130,6 @@ public class CategoryService {
                 .build();
     }
 
-    private String resolveCategoryCodeForCreate(String categoryCode, String name) {
-        if (categoryCode == null || categoryCode.isBlank()) {
-            long nextSequence = categoryRepository.count() + 1;
-            return CategoryCodeHelper.generate(name, nextSequence);
-        }
-        return CategoryCodeHelper.normalizeAndValidate(categoryCode);
-    }
 
     private void touchCreateAudit(Category category, Authentication authentication) {
         Instant now = Instant.now();

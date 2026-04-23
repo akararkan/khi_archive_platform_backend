@@ -32,23 +32,23 @@ public final class ValidationPatterns {
     public static final String USERNAME = "^[A-Za-z0-9_]+$";
 
     // ── PERSON CODE ───────────────────────────────────────────────────────────
-    /** Person codes must start with {@code KHI_} and then use letters, digits, underscores, or hyphens. */
-    public static final String PERSON_CODE = "^KHI_[A-Za-z0-9_-]+$";
+    /** Person codes use letters, digits, underscores, or hyphens. */
+    public static final String PERSON_CODE = "^[A-Za-z0-9_-]+$";
 
     // ── CATEGORY CODE ─────────────────────────────────────────────────────────
     /** Category codes are plain strings using letters, digits, underscores, or hyphens. */
     public static final String CATEGORY_CODE = "^[A-Za-z0-9_-]+$";
 
     // ── OBJECT CODE ───────────────────────────────────────────────────────────
-    /** Object codes must follow the format {@code KHI_OBJ_CATEGORYCODE_00001}. */
-    public static final String OBJECT_CODE = "^KHI_OBJ_[A-Za-z0-9_-]+_[0-9]{5}$";
+    /** Object codes must follow the format {@code OBJ_CATEGORYCODE}. */
+    public static final String OBJECT_CODE = "^OBJ_[A-Za-z0-9_-]+$";
 
     /** Object codes on create may be omitted, so an empty value is also allowed. */
-    public static final String OBJECT_CODE_OR_EMPTY = "^$|^KHI_OBJ_[A-Za-z0-9_-]+_[0-9]{5}$";
+    public static final String OBJECT_CODE_OR_EMPTY = "^$|^OBJ_[A-Za-z0-9_-]+$";
 
     // ── AUDIO CODE ────────────────────────────────────────────────────────────
-    /** Audio codes must follow the format {@code KHI_<NAME>_AUDIO_000001}. */
-    public static final String AUDIO_CODE = "^KHI_[A-Za-z0-9_-]+_AUDIO_[0-9]{6}$";
+    /** Audio codes must follow the format {@code <NAME>_AUDIO_<RAW|MASTER>_V<N>_COPY<N>_000001}. */
+    public static final String AUDIO_CODE = "^[A-Za-z0-9_-]+_AUDIO_(RAW|MASTER)_V[0-9]+_COPY[0-9]+_[0-9]{6}$";
 
     /** Legacy alias kept for compatibility with existing code paths. */
     public static final String OBJECT_CATEGORY_CODE = OBJECT_CODE;

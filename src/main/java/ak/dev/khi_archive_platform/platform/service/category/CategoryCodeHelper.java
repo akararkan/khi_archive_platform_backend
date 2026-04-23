@@ -2,7 +2,6 @@ package ak.dev.khi_archive_platform.platform.service.category;
 
 import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 
-import java.util.Locale;
 import java.util.regex.Pattern;
 
 public final class CategoryCodeHelper {
@@ -28,21 +27,6 @@ public final class CategoryCodeHelper {
             throw new IllegalArgumentException("Category code must contain only letters, numbers, underscores, or hyphens");
         }
         return normalized;
-    }
-
-    public static String generate(String name, long sequence) {
-        return slugify(name) + "_" + String.format(Locale.ROOT, "%05d", sequence);
-    }
-
-    private static String slugify(String value) {
-        if (value == null || value.isBlank()) {
-            return "CATEGORY";
-        }
-        String slug = value.trim().toUpperCase(Locale.ROOT)
-                .replaceAll("[^A-Z0-9]+", "_")
-                .replaceAll("_+", "_")
-                .replaceAll("^_+|_+$", "");
-        return slug.isBlank() ? "CATEGORY" : slug;
     }
 }
 

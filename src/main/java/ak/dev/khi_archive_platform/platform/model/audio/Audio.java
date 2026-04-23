@@ -33,7 +33,7 @@ public class Audio {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Business key such as KHI_HASAZI_AUDIO_000001. */
+    /** Business key such as KHI_HASAZI_AUDIO_RAW_V1_COPY1_000001. */
     @Column(name = "audio_code", unique = true, nullable = false, length = 255)
     private String audioCode;
 
@@ -202,6 +202,12 @@ public class Audio {
     @Column(name = "audio_version")
     private String audioVersion;
 
+    @Column(name = "version_number")
+    private Integer versionNumber;
+
+    @Column(name = "copy_number")
+    private Integer copyNumber;
+
     @Column(name = "lcc_classification")
     private String lcc_classification;
 
@@ -278,3 +284,4 @@ public class Audio {
         updatedAt = Instant.now();
     }
 }
+

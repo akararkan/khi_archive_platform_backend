@@ -21,7 +21,7 @@ import java.util.List;
 public class ObjectCreateRequestDTO {
 
     @Size(max = 160, message = "Object code must not exceed 160 characters")
-    @Pattern(regexp = ValidationPatterns.OBJECT_CODE_OR_EMPTY, message = "Object code must match format KHI_OBJ_CATEGORYCODE_00001")
+    @Pattern(regexp = ValidationPatterns.OBJECT_CODE_OR_EMPTY, message = "Object code must match format KHI_OBJ_CATEGORYCODE")
     private String objectCode;
 
     @NotBlank(message = "Object name is required")

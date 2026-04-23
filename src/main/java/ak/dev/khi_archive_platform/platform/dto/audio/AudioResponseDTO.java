@@ -71,6 +71,8 @@ public class AudioResponseDTO {
     private String sampleRate;
     private Integer audioQualityOutOf10;
     private String audioVersion;
+    private Integer versionNumber;
+    private Integer copyNumber;
     private String lccClassification;
     private String accrualMethod;
     private String provenance;

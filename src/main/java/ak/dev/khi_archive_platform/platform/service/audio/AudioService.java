@@ -52,7 +52,21 @@ public class AudioService {
         Person person = resolvePerson(dto.getPersonCode());
         ObjectAttribute archiveObject = resolveObject(dto.getObjectCode());
         validateSingleRelation(person, archiveObject);
-        String audioCode = generateAudioCode(person, archiveObject);
+
+        String audioVersion = dto.getAudioVersion().toUpperCase(Locale.ROOT);
+        Integer versionNumber = dto.getVersionNumber();
+        Integer copyNumber = dto.getCopyNumber();
+        if (!"RAW".equals(audioVersion) && !"MASTER".equals(audioVersion)) {
+            throw new AudioValidationException("Audio version must be RAW or MASTER");
+        }
+        if (versionNumber == null || versionNumber < 1) {
+            throw new AudioValidationException("Version number is required and must be at least 1");
+        }
+        if (copyNumber == null || copyNumber < 1) {
+            throw new AudioValidationException("Copy number is required and must be at least 1");
+        }
+
+        String audioCode = generateAudioCode(person, archiveObject, audioVersion, versionNumber, copyNumber);
 
         if (audioRepository.existsByAudioCode(audioCode)) {
             throw new AudioAlreadyExistsException("Audio code already exists: " + audioCode);
@@ -196,6 +210,7 @@ public class AudioService {
         if (dto.getDateModified() != null) audio.setDate_modified(dto.getDateModified());
         if (dto.getLccClassification() != null) audio.setLcc_classification(dto.getLccClassification());
         if (dto.getPhysicalAvailability() != null) audio.setPhysicalAvailability(dto.getPhysicalAvailability());
+        if (dto.getAudioVersion() != null) audio.setAudioVersion(dto.getAudioVersion().toUpperCase(Locale.ROOT));
     }
 
     private void touchCreateAudit(Audio audio, Authentication authentication) {
@@ -275,6 +290,8 @@ public class AudioService {
         response.setSampleRate(audio.getSampleRate());
         response.setAudioQualityOutOf10(audio.getAudioQualityOutOf10());
         response.setAudioVersion(audio.getAudioVersion());
+        response.setVersionNumber(audio.getVersionNumber());
+        response.setCopyNumber(audio.getCopyNumber());
         response.setLccClassification(audio.getLcc_classification());
         response.setAccrualMethod(audio.getAccrualMethod());
         response.setProvenance(audio.getProvenance());
@@ -355,6 +372,8 @@ public class AudioService {
         addChange(changes, "sampleRate", before.getSampleRate(), after.getSampleRate());
         addChange(changes, "audioQualityOutOf10", before.getAudioQualityOutOf10(), after.getAudioQualityOutOf10());
         addChange(changes, "audioVersion", before.getAudioVersion(), after.getAudioVersion());
+        addChange(changes, "versionNumber", before.getVersionNumber(), after.getVersionNumber());
+        addChange(changes, "copyNumber", before.getCopyNumber(), after.getCopyNumber());
         addChange(changes, "lccClassification", before.getLcc_classification(), after.getLcc_classification());
         addChange(changes, "accrualMethod", before.getAccrualMethod(), after.getAccrualMethod());
         addChange(changes, "provenance", before.getProvenance(), after.getProvenance());
@@ -418,12 +437,13 @@ public class AudioService {
         }
     }
 
-    private String generateAudioCode(Person person, ObjectAttribute archiveObject) {
+    private String generateAudioCode(Person person, ObjectAttribute archiveObject,
+                                     String audioVersion, Integer versionNumber, Integer copyNumber) {
         String parentCode = person != null ? person.getPersonCode() : archiveObject.getObjectCode();
         long sequence = person != null
-                ? audioRepository.countByPerson(person) + 1
-                : audioRepository.countByArchiveObject(archiveObject) + 1;
-        return parentCode + "_AUDIO_" + String.format(Locale.ROOT, "%06d", sequence);
+                ? audioRepository.countByPersonAndAudioVersionAndVersionNumberAndCopyNumber(person, audioVersion, versionNumber, copyNumber) + 1
+                : audioRepository.countByArchiveObjectAndAudioVersionAndVersionNumberAndCopyNumber(archiveObject, audioVersion, versionNumber, copyNumber) + 1;
+        return parentCode + "_AUDIO_" + audioVersion + "_V" + versionNumber + "_COPY" + copyNumber + "_" + String.format(Locale.ROOT, "%06d", sequence);
     }
 
 

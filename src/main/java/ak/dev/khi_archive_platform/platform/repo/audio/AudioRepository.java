@@ -19,5 +19,13 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
     long countByPerson(Person person);
 
     long countByArchiveObject(ObjectAttribute archiveObject);
+
+    long countByPersonAndAudioVersionAndVersionNumber(Person person, String audioVersion, Integer versionNumber);
+
+    long countByArchiveObjectAndAudioVersionAndVersionNumber(ObjectAttribute archiveObject, String audioVersion, Integer versionNumber);
+
+    long countByPersonAndAudioVersionAndVersionNumberAndCopyNumber(Person person, String audioVersion, Integer versionNumber, Integer copyNumber);
+
+    long countByArchiveObjectAndAudioVersionAndVersionNumberAndCopyNumber(ObjectAttribute archiveObject, String audioVersion, Integer versionNumber, Integer copyNumber);
 }
 
