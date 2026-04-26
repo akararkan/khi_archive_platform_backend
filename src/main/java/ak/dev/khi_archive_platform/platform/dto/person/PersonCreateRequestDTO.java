@@ -19,7 +19,7 @@ public class PersonCreateRequestDTO {
 
     @NotBlank(message = "Person code is required")
     @Size(max = 50, message = "Person code must not exceed 50 characters")
-    @Pattern(regexp = ValidationPatterns.PERSON_CODE, message = "Person code must start with KHI_ and contain only letters, numbers, underscores, or hyphens")
+    @Pattern(regexp = ValidationPatterns.PERSON_CODE, message = "Person code must contain only letters, numbers, underscores, or hyphens")
     private String personCode;
 
     @NotBlank(message = "Full name is required")

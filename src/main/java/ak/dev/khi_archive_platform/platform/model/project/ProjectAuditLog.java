@@ -1,6 +1,6 @@
-package ak.dev.khi_archive_platform.platform.model.object;
+package ak.dev.khi_archive_platform.platform.model.project;
 
-import ak.dev.khi_archive_platform.platform.enums.ArchiveObjectAuditAction;
+import ak.dev.khi_archive_platform.platform.enums.ProjectAuditAction;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,29 +10,42 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 @Entity
-@Table(name = "object_attribute_audit_logs")
+@Table(name = "project_audit_logs")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ObjectAttributeAuditLog {
+public class ProjectAuditLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "object_id")
-    private Long objectId;
+    @Column(name = "project_id")
+    private Long projectId;
 
-    @Column(name = "object_code", length = 160)
-    private String objectCode;
+    @Column(name = "project_code", length = 200)
+    private String projectCode;
 
-    @Column(name = "object_name")
-    private String objectName;
+    @Column(name = "project_name")
+    private String projectName;
+
+    @Column(name = "person_id")
+    private Long personId;
+
+    @Column(name = "person_code", length = 50)
+    private String personCode;
+
+    @Column(name = "person_name")
+    private String personName;
+
+    /** Comma-separated category codes for audit trail. */
+    @Column(name = "category_codes", columnDefinition = "TEXT")
+    private String categoryCodes;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "action", nullable = false, length = 20)
-    private ArchiveObjectAuditAction action;
+    private ProjectAuditAction action;
 
     @Column(name = "actor_user_id")
     private Long actorUserId;
@@ -55,6 +68,18 @@ public class ObjectAttributeAuditLog {
     @Column(name = "ip_address")
     private String ipAddress;
 
+    @Column(name = "session_id")
+    private String sessionId;
+
+    @Column(name = "session_login_timestamp")
+    private Instant sessionLoginTimestamp;
+
+    @Column(name = "session_expires_at")
+    private Instant sessionExpiresAt;
+
+    @Column(name = "session_is_active")
+    private Boolean sessionActive;
+
     @Column(name = "request_method")
     private String requestMethod;
 
@@ -67,4 +92,3 @@ public class ObjectAttributeAuditLog {
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 }
-

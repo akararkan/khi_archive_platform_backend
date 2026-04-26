@@ -24,11 +24,20 @@ public class AudioAuditLog {
     @Column(name = "audio_id")
     private Long audioId;
 
-    @Column(name = "audio_code", length = 160)
+    @Column(name = "audio_code", length = 255)
     private String audioCode;
 
     @Column(name = "audio_title")
     private String audioTitle;
+
+    @Column(name = "project_id")
+    private Long projectId;
+
+    @Column(name = "project_code", length = 200)
+    private String projectCode;
+
+    @Column(name = "project_name")
+    private String projectName;
 
     @Column(name = "person_id")
     private Long personId;
@@ -39,14 +48,8 @@ public class AudioAuditLog {
     @Column(name = "person_name")
     private String personName;
 
-    @Column(name = "object_id")
-    private Long objectId;
-
-    @Column(name = "object_code", length = 160)
-    private String objectCode;
-
-    @Column(name = "object_name")
-    private String objectName;
+    @Column(name = "category_code", length = 120)
+    private String categoryCode;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "action", nullable = false, length = 20)
@@ -97,4 +100,3 @@ public class AudioAuditLog {
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 }
-

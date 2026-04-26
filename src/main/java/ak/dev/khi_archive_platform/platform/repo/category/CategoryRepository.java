@@ -7,8 +7,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface CategoryRepository extends JpaRepository<Category, Long> {
-    Optional<Category> findByCategoryCodeAndDeletedAtIsNull(String categoryCode);
-    List<Category> findAllByDeletedAtIsNull();
-    boolean existsByCategoryCodeAndDeletedAtIsNull(String categoryCode);
-}
 
+    Optional<Category> findByCategoryCodeAndRemovedAtIsNull(String categoryCode);
+
+    List<Category> findAllByRemovedAtIsNull();
+
+    boolean existsByCategoryCodeAndRemovedAtIsNull(String categoryCode);
+}

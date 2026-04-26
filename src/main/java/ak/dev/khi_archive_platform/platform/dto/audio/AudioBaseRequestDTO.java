@@ -13,8 +13,7 @@ import java.util.List;
 @SuppressWarnings("unused")
 public class AudioBaseRequestDTO {
 
-    private String personCode;
-    private String objectCode;
+    private String projectCode;
 
     private String fullName;
     private String volumeName;
@@ -79,4 +78,3 @@ public class AudioBaseRequestDTO {
     private String publisher;
     private String archiveLocalNote;
 }
-

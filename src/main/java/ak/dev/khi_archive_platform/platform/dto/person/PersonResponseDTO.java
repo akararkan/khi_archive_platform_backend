@@ -37,10 +37,10 @@ public class PersonResponseDTO {
     private String note;
     private Instant createdAt;
     private Instant updatedAt;
-    private Instant deletedAt;
+    private Instant removedAt;
     private String createdBy;
     private String updatedBy;
-    private String deletedBy;
+    private String removedBy;
 }
 
 

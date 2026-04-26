@@ -7,8 +7,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface PersonRepository extends JpaRepository<Person, Long> {
-    Optional<Person> findByPersonCodeAndDeletedAtIsNull(String personCode);
-    List<Person> findAllByDeletedAtIsNull();
-    boolean existsByPersonCodeAndDeletedAtIsNull(String personCode);
-}
 
+    Optional<Person> findByPersonCodeAndRemovedAtIsNull(String personCode);
+
+    List<Person> findAllByRemovedAtIsNull();
+
+    boolean existsByPersonCodeAndRemovedAtIsNull(String personCode);
+}

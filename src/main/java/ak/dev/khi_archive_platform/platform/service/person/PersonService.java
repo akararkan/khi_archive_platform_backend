@@ -6,11 +6,16 @@ import ak.dev.khi_archive_platform.platform.dto.person.PersonResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.DatePrecision;
 import ak.dev.khi_archive_platform.platform.enums.PersonAuditAction;
+import ak.dev.khi_archive_platform.platform.exceptions.PersonAlreadyExistsException;
+import ak.dev.khi_archive_platform.platform.exceptions.PersonNotFoundException;
 import ak.dev.khi_archive_platform.platform.model.person.Person;
 import ak.dev.khi_archive_platform.platform.repo.person.PersonRepository;
+import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -20,9 +25,9 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.List;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,6 +36,7 @@ import java.util.stream.Collectors;
 public class PersonService {
 
     private final PersonRepository personRepository;
+    private final ProjectRepository projectRepository;
     private final PersonAuditService personAuditService;
     private final S3Service s3Service;
 
@@ -40,8 +46,8 @@ public class PersonService {
                                           HttpServletRequest request) {
         String personCode = normalizePersonCode(dto.getPersonCode());
 
-        if (personRepository.existsByPersonCodeAndDeletedAtIsNull(personCode)) {
-            throw new IllegalArgumentException("Person code already exists");
+        if (personRepository.existsByPersonCodeAndRemovedAtIsNull(personCode)) {
+            throw new PersonAlreadyExistsException("Person code already exists: " + personCode);
         }
 
         Person person = new Person();
@@ -63,7 +69,7 @@ public class PersonService {
 
     @Transactional(readOnly = true)
     public List<PersonResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<PersonResponseDTO> result = personRepository.findAllByDeletedAtIsNull().stream()
+        List<PersonResponseDTO> result = personRepository.findAllByRemovedAtIsNull().stream()
                 .map(this::toResponse)
                 .toList();
         personAuditService.record(null, PersonAuditAction.LIST, authentication, request,
@@ -76,8 +82,8 @@ public class PersonService {
                                              Authentication authentication,
                                              HttpServletRequest request) {
         String normalizedPersonCode = normalizePersonCode(personCode);
-        Person person = personRepository.findByPersonCodeAndDeletedAtIsNull(normalizedPersonCode)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personCode));
+        Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
+                .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
         personAuditService.record(person, PersonAuditAction.READ, authentication, request,
                 "Read person record");
         return toResponse(person);
@@ -89,8 +95,8 @@ public class PersonService {
                                           Authentication authentication,
                                           HttpServletRequest request) {
         String normalizedPersonCode = normalizePersonCode(personCode);
-        Person person = personRepository.findByPersonCodeAndDeletedAtIsNull(normalizedPersonCode)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personCode));
+        Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
+                .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
 
         PersonSnapshot before = PersonSnapshot.from(person);
 
@@ -124,18 +130,53 @@ public class PersonService {
         return toResponse(saved);
     }
 
-    public void deletePerson(String personCode,
+    /**
+     * Soft remove — marks the person as removed but keeps data in the database.
+     */
+    public void removePerson(String personCode,
                              Authentication authentication,
                              HttpServletRequest request) {
         String normalizedPersonCode = normalizePersonCode(personCode);
-        Person person = personRepository.findByPersonCodeAndDeletedAtIsNull(normalizedPersonCode)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personCode));
+        Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
+                .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
+
+        if (projectRepository.existsByPersonAndRemovedAtIsNull(person)) {
+            throw new IllegalStateException("Person has active projects and cannot be removed. Remove the projects first.");
+        }
+
+        person.setRemovedAt(Instant.now());
+        person.setRemovedBy(resolveActorUsername(authentication));
+        Person saved = personRepository.save(person);
+        personAuditService.record(saved, PersonAuditAction.REMOVE, authentication, request,
+                "Removed person record (soft delete)");
+    }
+
+    /**
+     * Hard delete — permanently removes the row from the database.
+     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     */
+    public void deletePerson(String personCode,
+                             Authentication authentication,
+                             HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalizedPersonCode = normalizePersonCode(personCode);
+        Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
+                .or(() -> personRepository.findAll().stream()
+                        .filter(p -> p.getPersonCode().equals(normalizedPersonCode))
+                        .findFirst())
+                .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
+
+        if (projectRepository.existsByPersonAndRemovedAtIsNull(person)) {
+            throw new IllegalStateException("Person has active projects and cannot be permanently deleted. Remove or delete the projects first.");
+        }
 
         deletePortrait(person.getMediaPortrait());
         personAuditService.record(person, PersonAuditAction.DELETE, authentication, request,
-                "Deleted person record");
+                "Permanently deleted person record");
         personRepository.delete(person);
     }
+
+    // ─── Field Helpers ───────────────────────────────────────────────────────────
 
     private void applyFields(Person person,
                              String nickname,
@@ -215,7 +256,6 @@ public class PersonService {
         if (file == null || file.isEmpty()) {
             return oldPortrait;
         }
-
         try {
             String originalFilename = StringUtils.cleanPath(file.getOriginalFilename() == null ? "portrait" : file.getOriginalFilename());
             String newPortrait = s3Service.uploadPersonPortrait(file.getBytes(), originalFilename, file.getContentType(), personCode);
@@ -274,15 +314,23 @@ public class PersonService {
         if (personCode == null) {
             throw new IllegalArgumentException("Person code is required");
         }
-
         String trimmed = personCode.trim();
         if (trimmed.isBlank()) {
             throw new IllegalArgumentException("Person code is required");
         }
-        if (!trimmed.startsWith("KHI_")) {
-            throw new IllegalArgumentException("Person code must start with KHI_");
-        }
         return trimmed;
+    }
+
+    private void requireAdminRole(Authentication authentication) {
+        if (authentication == null) {
+            throw new AccessDeniedException("Authentication is required for this operation");
+        }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
+        if (!isAdmin) {
+            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+        }
     }
 
     private PersonResponseDTO toResponse(Person p) {
@@ -308,12 +356,14 @@ public class PersonService {
                 .note(p.getNote())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
-                .deletedAt(p.getDeletedAt())
+                .removedAt(p.getRemovedAt())
                 .createdBy(p.getCreatedBy())
                 .updatedBy(p.getUpdatedBy())
-                .deletedBy(p.getDeletedBy())
+                .removedBy(p.getRemovedBy())
                 .build();
     }
+
+    // ─── Audit Details ───────────────────────────────────────────────────────────
 
     private String buildUpdateAuditDetails(PersonSnapshot before,
                                            Person after,
@@ -351,7 +401,6 @@ public class PersonService {
         if (changes.isEmpty()) {
             return "Updated person record (no field changes detected)";
         }
-
         return "Updated person record: " + String.join(" | ", changes);
     }
 
@@ -419,5 +468,3 @@ public class PersonService {
         }
     }
 }
-
-

@@ -1,21 +1,17 @@
 package ak.dev.khi_archive_platform.platform.model.category;
 
-import ak.dev.khi_archive_platform.platform.model.object.ObjectAttribute;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
+import lombok.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "categories",
         indexes = {
                 @Index(name = "idx_category_code", columnList = "category_code"),
-                @Index(name = "idx_category_deleted_at", columnList = "deleted_at")
+                @Index(name = "idx_category_removed_at", columnList = "removed_at")
         })
 @Getter
 @Setter
@@ -37,9 +33,17 @@ public class Category {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @JsonIgnore
-    @OneToOne(mappedBy = "category", fetch = FetchType.LAZY)
-    private ObjectAttribute object;
+    /**
+     * Keywords / alternative names for this category.
+     * Used to prevent duplicate categories with similar meanings.
+     */
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "category_keywords", joinColumns = @JoinColumn(name = "category_id"))
+    @Column(name = "keyword", columnDefinition = "TEXT")
+    private List<String> keywords = new ArrayList<>();
+
+    // ─── Audit ───────────────────────────────────────────────────────────────────
 
     @Column(name = "created_at")
     private Instant createdAt;
@@ -47,8 +51,8 @@ public class Category {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @Column(name = "deleted_at")
-    private Instant deletedAt;
+    @Column(name = "removed_at")
+    private Instant removedAt;
 
     @Column(name = "created_by", length = 120)
     private String createdBy;
@@ -56,24 +60,8 @@ public class Category {
     @Column(name = "updated_by", length = 120)
     private String updatedBy;
 
-    @Column(name = "deleted_by", length = 120)
-    private String deletedBy;
-
-    public void attachObject(ObjectAttribute object) {
-        this.object = object;
-        if (object != null && object.getCategory() != this) {
-            object.setCategory(this);
-        }
-    }
-
-    public void detachObject(ObjectAttribute object) {
-        if (this.object == object) {
-            this.object = null;
-        }
-        if (object != null && object.getCategory() == this) {
-            object.setCategory(null);
-        }
-    }
+    @Column(name = "removed_by", length = 120)
+    private String removedBy;
 
     @PrePersist
     void onCreate() {

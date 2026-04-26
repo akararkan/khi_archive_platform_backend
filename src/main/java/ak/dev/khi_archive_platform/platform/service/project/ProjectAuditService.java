@@ -1,9 +1,9 @@
-package ak.dev.khi_archive_platform.platform.service.object;
+package ak.dev.khi_archive_platform.platform.service.project;
 
-import ak.dev.khi_archive_platform.platform.enums.ArchiveObjectAuditAction;
-import ak.dev.khi_archive_platform.platform.model.object.ObjectAttribute;
-import ak.dev.khi_archive_platform.platform.model.object.ObjectAttributeAuditLog;
-import ak.dev.khi_archive_platform.platform.repo.object.ObjectAttributeAuditLogRepository;
+import ak.dev.khi_archive_platform.platform.enums.ProjectAuditAction;
+import ak.dev.khi_archive_platform.platform.model.project.Project;
+import ak.dev.khi_archive_platform.platform.model.project.ProjectAuditLog;
+import ak.dev.khi_archive_platform.platform.repo.project.ProjectAuditLogRepository;
 import ak.dev.khi_archive_platform.user.jwt.JwtCookieService;
 import ak.dev.khi_archive_platform.user.jwt.JwtTokenProvider;
 import ak.dev.khi_archive_platform.user.model.Session;
@@ -11,41 +11,50 @@ import ak.dev.khi_archive_platform.user.model.User;
 import ak.dev.khi_archive_platform.user.repo.SessionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.HtmlUtils;
 
-import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.TOKEN_PREFIX;
+import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
+import java.time.Instant;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @SuppressWarnings("unused")
-public class ObjectAttributeAuditService {
+public class ProjectAuditService {
 
-    private final ObjectAttributeAuditLogRepository auditLogRepository;
+    private final ProjectAuditLogRepository auditLogRepository;
     private final SessionRepository sessionRepository;
     private final JwtCookieService jwtCookieService;
     private final JwtTokenProvider jwtTokenProvider;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public ObjectAttributeAuditLog record(ObjectAttribute object,
-                                          ArchiveObjectAuditAction action,
-                                          Authentication authentication,
-                                          HttpServletRequest request,
-                                          String details) {
+    public ProjectAuditLog record(Project project,
+                                  ProjectAuditAction action,
+                                  Authentication authentication,
+                                  HttpServletRequest request,
+                                  String details) {
         Session session = resolveSession(request);
         User actorUser = resolveActorUser(authentication);
 
-        ObjectAttributeAuditLog log = ObjectAttributeAuditLog.builder()
-                .objectId(object != null ? object.getId() : null)
-                .objectCode(object != null ? object.getObjectCode() : null)
-                .objectName(object != null ? object.getObjectName() : null)
+        ProjectAuditLog log = ProjectAuditLog.builder()
+                .projectId(project != null ? project.getId() : null)
+                .projectCode(project != null ? project.getProjectCode() : null)
+                .projectName(project != null ? project.getProjectName() : null)
+                .personId(project != null && project.getPerson() != null ? project.getPerson().getId() : null)
+                .personCode(project != null && project.getPerson() != null ? project.getPerson().getPersonCode() : null)
+                .personName(project != null && project.getPerson() != null ? project.getPerson().getFullName() : null)
+                .categoryCodes(project != null && project.getCategories() != null
+                        ? project.getCategories().stream()
+                            .map(c -> c.getCategoryCode())
+                            .collect(java.util.stream.Collectors.joining(","))
+                        : null)
                 .action(action)
                 .actorUserId(actorUser != null ? actorUser.getUserId() : null)
                 .actorUsername(actorUser != null ? actorUser.getUsername() : (authentication != null ? authentication.getName() : "anonymous"))
@@ -54,10 +63,14 @@ public class ObjectAttributeAuditService {
                 .actorPermissions(resolvePermissions(authentication))
                 .deviceInfo(session != null ? session.getDeviceInfo() : request.getHeader("User-Agent"))
                 .ipAddress(session != null ? session.getIpAddress() : request.getRemoteAddr())
+                .sessionId(session != null ? session.getSessionId() : null)
+                .sessionLoginTimestamp(session != null ? session.getLoginTimestamp() : null)
+                .sessionExpiresAt(session != null ? session.getExpiresAt() : null)
+                .sessionActive(session != null ? session.getIsActive() : null)
                 .requestMethod(request.getMethod())
                 .requestPath(request.getRequestURI())
                 .details(details == null ? null : HtmlUtils.htmlEscape(details))
-                .occurredAt(java.time.Instant.now())
+                .occurredAt(Instant.now())
                 .build();
 
         return auditLogRepository.save(log);
@@ -68,12 +81,10 @@ public class ObjectAttributeAuditService {
         if (token == null || token.isBlank()) {
             return null;
         }
-
         String sessionId = jwtTokenProvider.getSessionIdFromToken(token);
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
-
         return sessionRepository.findBySessionId(sessionId).orElse(null);
     }
 
@@ -100,7 +111,6 @@ public class ObjectAttributeAuditService {
         if (authentication == null) {
             return null;
         }
-
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .filter(authority -> authority != null && !authority.isBlank())
@@ -112,7 +122,6 @@ public class ObjectAttributeAuditService {
         if (authentication == null) {
             return null;
         }
-
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .filter(authority -> authority != null && !authority.isBlank() && !authority.startsWith("ROLE_"))
@@ -120,4 +129,3 @@ public class ObjectAttributeAuditService {
                 .collect(Collectors.joining(","));
     }
 }
-

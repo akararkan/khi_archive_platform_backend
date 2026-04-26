@@ -63,6 +63,33 @@ public class PersonAPI {
         return ResponseEntity.ok(personService.updatePerson(personCode, dto, mediaPortrait, auth, request));
     }
 
+    /**
+     * Soft remove — marks the person as removed but keeps data in the database.
+     */
+    @PatchMapping("/{personCode}/remove")
+    public ResponseEntity<Void> remove(
+            @PathVariable String personCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        personService.removePerson(personCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Hard delete — permanently removes the row from the database.
+     * Restricted to ADMIN and SUPER_ADMIN only.
+     */
+    @DeleteMapping("/{personCode}")
+    public ResponseEntity<Void> delete(
+            @PathVariable String personCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        personService.deletePerson(personCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
     private <T> T parseAndValidate(String dataJson, Class<T> clazz) {
         try {
             if (dataJson == null || dataJson.isBlank()) {
@@ -84,18 +111,10 @@ public class PersonAPI {
             }
 
             return dto;
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to parse 'data' part: " + e.getMessage(), e);
         }
-    }
-
-    @DeleteMapping("/{personCode}")
-    public ResponseEntity<Void> delete(
-            @PathVariable String personCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        personService.deletePerson(personCode, auth, request);
-        return ResponseEntity.noContent().build();
     }
 }

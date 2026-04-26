@@ -9,14 +9,17 @@ import ak.dev.khi_archive_platform.platform.exceptions.CategoryInUseException;
 import ak.dev.khi_archive_platform.platform.exceptions.CategoryNotFoundException;
 import ak.dev.khi_archive_platform.platform.model.category.Category;
 import ak.dev.khi_archive_platform.platform.repo.category.CategoryRepository;
-import ak.dev.khi_archive_platform.platform.repo.object.ObjectAttributeRepository;
+import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -25,7 +28,7 @@ import java.util.List;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
-    private final ObjectAttributeRepository objectRepository;
+    private final ProjectRepository projectRepository;
     private final CategoryAuditService auditService;
 
     public CategoryResponseDTO create(CategoryCreateRequestDTO dto,
@@ -33,7 +36,7 @@ public class CategoryService {
                                       HttpServletRequest request) {
         String categoryCode = CategoryCodeHelper.normalizeAndValidate(dto.getCategoryCode());
 
-        if (categoryRepository.existsByCategoryCodeAndDeletedAtIsNull(categoryCode)) {
+        if (categoryRepository.existsByCategoryCodeAndRemovedAtIsNull(categoryCode)) {
             throw new CategoryAlreadyExistsException("Category code already exists");
         }
 
@@ -41,6 +44,7 @@ public class CategoryService {
                 .categoryCode(categoryCode)
                 .name(dto.getName())
                 .description(dto.getDescription())
+                .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
                 .build();
 
         touchCreateAudit(category, authentication);
@@ -52,7 +56,7 @@ public class CategoryService {
 
     @Transactional(readOnly = true)
     public List<CategoryResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<CategoryResponseDTO> result = categoryRepository.findAllByDeletedAtIsNull().stream()
+        List<CategoryResponseDTO> result = categoryRepository.findAllByRemovedAtIsNull().stream()
                 .map(this::toResponse)
                 .toList();
         auditService.record(null, CategoryAuditAction.LIST, authentication, request,
@@ -65,7 +69,7 @@ public class CategoryService {
                                                  Authentication authentication,
                                                  HttpServletRequest request) {
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
-        Category category = categoryRepository.findByCategoryCodeAndDeletedAtIsNull(normalizedCategoryCode)
+        Category category = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
         auditService.record(category, CategoryAuditAction.READ, authentication, request,
                 "Read category");
@@ -77,7 +81,7 @@ public class CategoryService {
                                       Authentication authentication,
                                       HttpServletRequest request) {
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
-        Category category = categoryRepository.findByCategoryCodeAndDeletedAtIsNull(normalizedCategoryCode)
+        Category category = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
 
         StringBuilder changes = new StringBuilder();
@@ -86,8 +90,12 @@ public class CategoryService {
             category.setName(dto.getName());
         }
         if (dto.getDescription() != null && !dto.getDescription().equals(category.getDescription())) {
-            changes.append("description: ").append(category.getDescription()).append(" -> ").append(dto.getDescription()).append(" | ");
+            changes.append("description changed | ");
             category.setDescription(dto.getDescription());
+        }
+        if (dto.getKeywords() != null) {
+            changes.append("keywords: ").append(category.getKeywords()).append(" -> ").append(dto.getKeywords()).append(" | ");
+            category.setKeywords(new ArrayList<>(dto.getKeywords()));
         }
 
         touchUpdateAudit(category, authentication);
@@ -97,22 +105,49 @@ public class CategoryService {
         return toResponse(saved);
     }
 
-    public void delete(String categoryCode,
+    /**
+     * Soft remove — marks the category as removed but keeps data in the database.
+     */
+    public void remove(String categoryCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
-        Category category = categoryRepository.findByCategoryCodeAndDeletedAtIsNull(normalizedCategoryCode)
+        Category category = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
 
-        if (objectRepository.existsByCategoryAndDeletedAtIsNull(category)) {
-            throw new CategoryInUseException("Category is used by active objects and cannot be deleted");
+        if (projectRepository.existsByCategoryAndRemovedAtIsNull(category)) {
+            throw new CategoryInUseException("Category is used by active projects and cannot be removed");
         }
 
-        category.setDeletedAt(Instant.now());
-        category.setDeletedBy(resolveActorUsername(authentication));
+        category.setRemovedAt(Instant.now());
+        category.setRemovedBy(resolveActorUsername(authentication));
         Category saved = categoryRepository.save(category);
-        auditService.record(saved, CategoryAuditAction.DELETE, authentication, request,
-                "Deleted category");
+        auditService.record(saved, CategoryAuditAction.REMOVE, authentication, request,
+                "Removed category (soft delete)");
+    }
+
+    /**
+     * Hard delete — permanently removes the row from the database.
+     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     */
+    public void delete(String categoryCode,
+                       Authentication authentication,
+                       HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
+        Category category = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)
+                .or(() -> categoryRepository.findAll().stream()
+                        .filter(c -> c.getCategoryCode().equals(normalizedCategoryCode))
+                        .findFirst())
+                .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
+
+        if (projectRepository.existsByCategoryAndRemovedAtIsNull(category)) {
+            throw new CategoryInUseException("Category is used by active projects and cannot be permanently deleted");
+        }
+
+        auditService.record(category, CategoryAuditAction.DELETE, authentication, request,
+                "Permanently deleted category");
+        categoryRepository.delete(category);
     }
 
     private CategoryResponseDTO toResponse(Category category) {
@@ -121,15 +156,15 @@ public class CategoryService {
                 .categoryCode(category.getCategoryCode())
                 .name(category.getName())
                 .description(category.getDescription())
+                .keywords(category.getKeywords() != null ? new ArrayList<>(category.getKeywords()) : null)
                 .createdAt(category.getCreatedAt())
                 .updatedAt(category.getUpdatedAt())
-                .deletedAt(category.getDeletedAt())
+                .removedAt(category.getRemovedAt())
                 .createdBy(category.getCreatedBy())
                 .updatedBy(category.getUpdatedBy())
-                .deletedBy(category.getDeletedBy())
+                .removedBy(category.getRemovedBy())
                 .build();
     }
-
 
     private void touchCreateAudit(Category category, Authentication authentication) {
         Instant now = Instant.now();
@@ -149,8 +184,19 @@ public class CategoryService {
         return authentication == null ? "anonymous" : authentication.getName();
     }
 
+    private void requireAdminRole(Authentication authentication) {
+        if (authentication == null) {
+            throw new AccessDeniedException("Authentication is required for this operation");
+        }
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
+        if (!isAdmin) {
+            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+        }
+    }
+
     private String trimTrailingSeparator(String value) {
         return value.endsWith(" | ") ? value.substring(0, value.length() - 3) : value;
     }
 }
-

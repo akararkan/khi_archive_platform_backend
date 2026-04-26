@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -14,5 +16,7 @@ import lombok.NoArgsConstructor;
 public class CategoryUpdateRequestDTO {
     private String name;
     private String description;
-}
 
+    /** Keywords / alternative names to help prevent duplicate categories. */
+    private List<String> keywords;
+}

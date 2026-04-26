@@ -53,6 +53,23 @@ public class CategoryAPI {
         return ResponseEntity.ok(categoryService.update(categoryCode, dto, auth, request));
     }
 
+    /**
+     * Soft remove — marks the category as removed but keeps data in the database.
+     */
+    @PatchMapping("/{categoryCode}/remove")
+    public ResponseEntity<Void> remove(
+            @PathVariable String categoryCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        categoryService.remove(categoryCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Hard delete — permanently removes the row from the database.
+     * Restricted to ADMIN and SUPER_ADMIN only.
+     */
     @DeleteMapping("/{categoryCode}")
     public ResponseEntity<Void> delete(
             @PathVariable String categoryCode,
@@ -63,4 +80,3 @@ public class CategoryAPI {
         return ResponseEntity.noContent().build();
     }
 }
-

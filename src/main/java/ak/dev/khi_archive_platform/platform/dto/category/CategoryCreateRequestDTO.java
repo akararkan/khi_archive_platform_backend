@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 
 import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -24,5 +26,7 @@ public class CategoryCreateRequestDTO {
     private String name;
 
     private String description;
-}
 
+    /** Keywords / alternative names to help prevent duplicate categories. */
+    private List<String> keywords;
+}

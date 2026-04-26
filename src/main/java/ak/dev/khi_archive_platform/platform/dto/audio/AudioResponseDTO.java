@@ -16,12 +16,13 @@ import java.util.List;
 public class AudioResponseDTO {
     private Long id;
     private String audioCode;
+    private Long projectId;
+    private String projectCode;
+    private String projectName;
     private Long personId;
     private String personCode;
     private String personName;
-    private Long objectId;
-    private String objectCode;
-    private String objectName;
+    private List<String> categoryCodes;
     private String audioFileUrl;
     private String fullName;
     private String volumeName;
@@ -87,9 +88,8 @@ public class AudioResponseDTO {
     private String archiveLocalNote;
     private Instant createdAt;
     private Instant updatedAt;
-    private Instant deletedAt;
+    private Instant removedAt;
     private String createdBy;
     private String updatedBy;
-    private String deletedBy;
+    private String removedBy;
 }
-

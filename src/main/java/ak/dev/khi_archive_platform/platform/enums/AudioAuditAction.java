@@ -5,6 +5,6 @@ public enum AudioAuditAction {
     READ,
     LIST,
     UPDATE,
+    REMOVE,
     DELETE
 }
-

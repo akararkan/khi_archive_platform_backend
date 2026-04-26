@@ -21,6 +21,7 @@ import org.springframework.web.util.HtmlUtils;
 import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.TOKEN_PREFIX;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
+import java.time.Instant;
 import java.util.stream.Collectors;
 
 @Service
@@ -42,16 +43,10 @@ public class AudioAuditService {
         Session session = resolveSession(request);
         User actorUser = resolveActorUser(authentication);
 
-        AudioAuditLog log = AudioAuditLog.builder()
+        AudioAuditLog.AudioAuditLogBuilder builder = AudioAuditLog.builder()
                 .audioId(audio != null ? audio.getId() : null)
                 .audioCode(audio != null ? audio.getAudioCode() : null)
                 .audioTitle(audio != null ? audio.getFullname() : null)
-                .personId(audio != null && audio.getPerson() != null ? audio.getPerson().getId() : null)
-                .personCode(audio != null && audio.getPerson() != null ? audio.getPerson().getPersonCode() : null)
-                .personName(audio != null && audio.getPerson() != null ? audio.getPerson().getFullName() : null)
-                .objectId(audio != null && audio.getArchiveObject() != null ? audio.getArchiveObject().getId() : null)
-                .objectCode(audio != null && audio.getArchiveObject() != null ? audio.getArchiveObject().getObjectCode() : null)
-                .objectName(audio != null && audio.getArchiveObject() != null ? audio.getArchiveObject().getObjectName() : null)
                 .action(action)
                 .actorUserId(actorUser != null ? actorUser.getUserId() : null)
                 .actorUsername(actorUser != null ? actorUser.getUsername() : (authentication != null ? authentication.getName() : "anonymous"))
@@ -67,10 +62,26 @@ public class AudioAuditService {
                 .requestMethod(request.getMethod())
                 .requestPath(request.getRequestURI())
                 .details(details == null ? null : HtmlUtils.htmlEscape(details))
-                .occurredAt(java.time.Instant.now())
-                .build();
+                .occurredAt(Instant.now());
 
-        return auditLogRepository.save(log);
+        if (audio != null && audio.getProject() != null) {
+            builder.projectId(audio.getProject().getId())
+                    .projectCode(audio.getProject().getProjectCode())
+                    .projectName(audio.getProject().getProjectName());
+
+            if (audio.getProject().getPerson() != null) {
+                builder.personId(audio.getProject().getPerson().getId())
+                        .personCode(audio.getProject().getPerson().getPersonCode())
+                        .personName(audio.getProject().getPerson().getFullName());
+            }
+            if (audio.getProject().getCategories() != null && !audio.getProject().getCategories().isEmpty()) {
+                builder.categoryCode(audio.getProject().getCategories().stream()
+                        .map(c -> c.getCategoryCode())
+                        .collect(java.util.stream.Collectors.joining(",")));
+            }
+        }
+
+        return auditLogRepository.save(builder.build());
     }
 
     private Session resolveSession(HttpServletRequest request) {
@@ -78,12 +89,10 @@ public class AudioAuditService {
         if (token == null || token.isBlank()) {
             return null;
         }
-
         String sessionId = jwtTokenProvider.getSessionIdFromToken(token);
         if (sessionId == null || sessionId.isBlank()) {
             return null;
         }
-
         return sessionRepository.findBySessionId(sessionId).orElse(null);
     }
 
@@ -110,7 +119,6 @@ public class AudioAuditService {
         if (authentication == null) {
             return null;
         }
-
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .filter(authority -> authority != null && !authority.isBlank())
@@ -122,7 +130,6 @@ public class AudioAuditService {
         if (authentication == null) {
             return null;
         }
-
         return authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .filter(authority -> authority != null && !authority.isBlank() && !authority.startsWith("ROLE_"))
@@ -130,4 +137,3 @@ public class AudioAuditService {
                 .collect(Collectors.joining(","));
     }
 }
-

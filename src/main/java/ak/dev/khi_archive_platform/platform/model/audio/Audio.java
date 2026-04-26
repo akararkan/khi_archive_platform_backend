@@ -1,14 +1,12 @@
 package ak.dev.khi_archive_platform.platform.model.audio;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.AssertTrue;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import ak.dev.khi_archive_platform.platform.model.object.ObjectAttribute;
-import ak.dev.khi_archive_platform.platform.model.person.Person;
+import ak.dev.khi_archive_platform.platform.model.project.Project;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,9 +16,8 @@ import java.util.List;
 @Table(name = "audios",
         indexes = {
                 @Index(name = "idx_audio_code", columnList = "audio_code"),
-                @Index(name = "idx_audio_person_id", columnList = "person_id"),
-                @Index(name = "idx_audio_object_id", columnList = "object_id"),
-                @Index(name = "idx_audio_deleted_at", columnList = "deleted_at")
+                @Index(name = "idx_audio_project_id", columnList = "project_id"),
+                @Index(name = "idx_audio_removed_at", columnList = "removed_at")
         })
 @Getter
 @Setter
@@ -33,21 +30,14 @@ public class Audio {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Business key such as KHI_HASAZI_AUDIO_RAW_V1_COPY1_000001. */
+    /** Business key such as HASAZIRA_AUD_RAW_V1_Copy(1)_000001. */
     @Column(name = "audio_code", unique = true, nullable = false, length = 255)
     private String audioCode;
 
-    /**
-     * Audio may belong to a person, an object, or both metadata-wise.
-     * At least one of these links must be present.
-     */
+    /** Audio belongs to a project (collection). */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "person_id")
-    private Person person;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "object_id")
-    private ObjectAttribute archiveObject;
+    @JoinColumn(name = "project_id", nullable = false)
+    private Project project;
 
     @Column(name = "fullname", columnDefinition = "TEXT")
     private String fullname;
@@ -247,14 +237,16 @@ public class Audio {
     @Column(name = "audio_file_url", length = 1000)
     private String audioFileUrl;
 
+    // ─── Audit ───────────────────────────────────────────────────────────────────
+
     @Column(name = "created_at")
     private Instant createdAt;
 
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @Column(name = "deleted_at")
-    private Instant deletedAt;
+    @Column(name = "removed_at")
+    private Instant removedAt;
 
     @Column(name = "created_by", length = 120)
     private String createdBy;
@@ -262,15 +254,8 @@ public class Audio {
     @Column(name = "updated_by", length = 120)
     private String updatedBy;
 
-    @Column(name = "deleted_by", length = 120)
-    private String deletedBy;
-
-    @AssertTrue(message = "Audio must be linked to either a person or an object.")
-    @Transient
-    @SuppressWarnings("unused")
-    public boolean isLinkedToPersonOrObject() {
-        return person != null || archiveObject != null;
-    }
+    @Column(name = "removed_by", length = 120)
+    private String removedBy;
 
     @PrePersist
     void onCreate() {
@@ -284,4 +269,3 @@ public class Audio {
         updatedAt = Instant.now();
     }
 }
-

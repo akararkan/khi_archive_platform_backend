@@ -13,7 +13,8 @@ import java.util.List;
 @Table(name = "person",
         indexes = {
                 @Index(name = "idx_person_code", columnList = "person_code"),
-                @Index(name = "idx_person_region", columnList = "region")
+                @Index(name = "idx_person_region", columnList = "region"),
+                @Index(name = "idx_person_removed_at", columnList = "removed_at")
         })
 @Getter
 @Setter
@@ -28,7 +29,7 @@ public class Person {
 
     // ─── Identification ──────────────────────────────────────────────────────────
 
-    /** Business key — must start with KHI_ (e.g. KHI_HZI, KHI_AMA). Used as FK in other tables. */
+    /** Business key (e.g. HZI, AMA). Used as FK in other tables. */
     @Column(name = "person_code", unique = true, nullable = false, length = 50)
     private String personCode;
 
@@ -40,35 +41,27 @@ public class Person {
     @Column(name = "full_name", nullable = false, columnDefinition = "TEXT")
     private String fullName;
 
-    /** Well-known nickname / pen name (e.g. "حەسەن زیرەک") */
+    /** Well-known nickname / pen name */
     @Column(name = "nickname", columnDefinition = "TEXT")
     private String nickname;
 
-    /** Name romanized in Latin script (e.g. "Hesen Zîrek") */
+    /** Name romanized in Latin script */
     @Column(name = "romanized_name", length = 255)
     private String romanizedName;
 
-    /** نێر / مێ / نامەعلوم  (Male / Female / Unknown) */
     @Column(name = "gender", length = 50)
     private Gender gender;
-    /**
-     * Role / type of figure. Stored as a collection of values.
-     * e.g. ["هونەرمەند", "گۆرانیبێژ"]
-     */
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "person_person_type", joinColumns = @JoinColumn(name = "person_id"))
     @Column(name = "person_type", length = 255)
     private List<String> personType;
 
-    /**
-     * Kurdish region of origin.
-     * e.g. باشووری کوردستان / ڕۆژهەڵاتی کوردستان / ڕۆژاوای کوردستان / باکووری کوردستان
-     */
     @Column(name = "region", length = 255)
     private String region;
+
     // ─── Dates ────────────────────────────────────────────────────────────────────
 
-    /** Date of birth — optional; precision captures year/month-only values. */
     @Column(name = "date_of_birth")
     private LocalDate dateOfBirth;
 
@@ -79,7 +72,6 @@ public class Person {
     @Column(name = "place_of_birth", length = 255)
     private String placeOfBirth;
 
-    /** Date of death — optional; precision captures year/month-only values. */
     @Column(name = "date_of_death")
     private LocalDate dateOfDeath;
 
@@ -94,11 +86,9 @@ public class Person {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    /** Comma-separated tags  e.g. "میوزیک، فۆلکلۆر" */
     @Column(name = "tag", columnDefinition = "TEXT")
     private String tag;
 
-    /** Search keywords — multiple spellings, transliterations */
     @Column(name = "keywords", columnDefinition = "TEXT")
     private String keywords;
 
@@ -113,8 +103,8 @@ public class Person {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
-    @Column(name = "deleted_at")
-    private Instant deletedAt;
+    @Column(name = "removed_at")
+    private Instant removedAt;
 
     @Column(name = "created_by", length = 120)
     private String createdBy;
@@ -122,8 +112,8 @@ public class Person {
     @Column(name = "updated_by", length = 120)
     private String updatedBy;
 
-    @Column(name = "deleted_by", length = 120)
-    private String deletedBy;
+    @Column(name = "removed_by", length = 120)
+    private String removedBy;
 
     @PrePersist
     void onCreate() {

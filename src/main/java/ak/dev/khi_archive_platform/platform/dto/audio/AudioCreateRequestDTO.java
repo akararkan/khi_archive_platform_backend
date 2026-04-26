@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.dto.audio;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.NotBlank;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -15,11 +16,9 @@ import lombok.Setter;
 @SuppressWarnings("unused")
 public class AudioCreateRequestDTO extends AudioBaseRequestDTO {
 
-    @AssertTrue(message = "Audio must be linked to either a person or an object.")
-    public boolean isLinkedToPersonOrObject() {
-        boolean hasPerson = getPersonCode() != null && !getPersonCode().isBlank();
-        boolean hasObject = getObjectCode() != null && !getObjectCode().isBlank();
-        return hasPerson ^ hasObject;
+    @AssertTrue(message = "Project code is required for audio creation.")
+    public boolean isProjectCodePresent() {
+        return getProjectCode() != null && !getProjectCode().isBlank();
     }
 
     @AssertTrue(message = "Audio version is required and must be RAW or MASTER.")
@@ -40,4 +39,3 @@ public class AudioCreateRequestDTO extends AudioBaseRequestDTO {
         return cn != null && cn >= 1;
     }
 }
-

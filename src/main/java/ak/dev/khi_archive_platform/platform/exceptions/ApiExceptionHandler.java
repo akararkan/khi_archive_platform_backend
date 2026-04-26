@@ -32,6 +32,8 @@ import java.util.Map;
 @RestControllerAdvice(basePackages = "ak.dev.khi_archive_platform.platform")
 public class ApiExceptionHandler {
 
+    // ─── 400 Bad Request ─────────────────────────────────────────────────────────
+
     @ExceptionHandler({
             IllegalArgumentException.class,
             HttpMessageNotReadableException.class,
@@ -47,53 +49,6 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "BAD_REQUEST", ex.getMessage(), request.getRequestURI(), validationDetails(ex));
     }
 
-    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
-                                                                       HttpServletRequest request) {
-        String contentType = ex.getContentType() == null ? "unknown" : ex.getContentType().toString();
-        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
-                "UNSUPPORTED_MEDIA_TYPE",
-                "Unsupported request content type (" + contentType + "). For multipart person create/update, send the 'data' part as application/json and the 'image' part as a file.",
-                request.getRequestURI(),
-                null);
-    }
-
-    @ExceptionHandler({DataIntegrityViolationException.class})
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleConflict(DataIntegrityViolationException ex,
-                                                           HttpServletRequest request) {
-        return build(HttpStatus.CONFLICT, "CONFLICT", rootMessage(ex), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(ObjectAttributeAlreadyExistsException.class)
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleObjectAlreadyExists(ObjectAttributeAlreadyExistsException ex,
-                                                                      HttpServletRequest request) {
-        return build(HttpStatus.CONFLICT, "OBJECT_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(ObjectAttributeNotFoundException.class)
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleObjectNotFound(ObjectAttributeNotFoundException ex,
-                                                                 HttpServletRequest request) {
-        return build(HttpStatus.NOT_FOUND, "OBJECT_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(AudioAlreadyExistsException.class)
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleAudioAlreadyExists(AudioAlreadyExistsException ex,
-                                                                     HttpServletRequest request) {
-        return build(HttpStatus.CONFLICT, "AUDIO_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
-    }
-
-    @ExceptionHandler(AudioNotFoundException.class)
-    @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleAudioNotFound(AudioNotFoundException ex,
-                                                                HttpServletRequest request) {
-        return build(HttpStatus.NOT_FOUND, "AUDIO_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
-    }
-
     @ExceptionHandler(AudioValidationException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleAudioValidation(AudioValidationException ex,
@@ -101,12 +56,20 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "AUDIO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
     }
 
-
-    @ExceptionHandler(CategoryAlreadyExistsException.class)
+    @ExceptionHandler(ProjectValidationException.class)
     @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleCategoryAlreadyExists(CategoryAlreadyExistsException ex,
-                                                                        HttpServletRequest request) {
-        return build(HttpStatus.CONFLICT, "CATEGORY_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    public ResponseEntity<ApiErrorResponse> handleProjectValidation(ProjectValidationException ex,
+                                                                    HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "PROJECT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    // ─── 404 Not Found ──────────────────────────────────────────────────────────
+
+    @ExceptionHandler(AudioNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleAudioNotFound(AudioNotFoundException ex,
+                                                                HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "AUDIO_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CategoryNotFoundException.class)
@@ -116,6 +79,64 @@ public class ApiExceptionHandler {
         return build(HttpStatus.NOT_FOUND, "CATEGORY_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
+    @ExceptionHandler(ProjectNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleProjectNotFound(ProjectNotFoundException ex,
+                                                                  HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "PROJECT_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(PersonNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handlePersonNotFound(PersonNotFoundException ex,
+                                                                 HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception ex,
+                                                           HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    // ─── 409 Conflict ────────────────────────────────────────────────────────────
+
+    @ExceptionHandler({DataIntegrityViolationException.class})
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleConflict(DataIntegrityViolationException ex,
+                                                           HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "CONFLICT", rootMessage(ex), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(AudioAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleAudioAlreadyExists(AudioAlreadyExistsException ex,
+                                                                     HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUDIO_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(CategoryAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleCategoryAlreadyExists(CategoryAlreadyExistsException ex,
+                                                                        HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "CATEGORY_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(ProjectAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleProjectAlreadyExists(ProjectAlreadyExistsException ex,
+                                                                       HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "PROJECT_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(PersonAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handlePersonAlreadyExists(PersonAlreadyExistsException ex,
+                                                                      HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "PERSON_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
     @ExceptionHandler(CategoryInUseException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleCategoryInUse(CategoryInUseException ex,
@@ -123,12 +144,14 @@ public class ApiExceptionHandler {
         return build(HttpStatus.CONFLICT, "CATEGORY_IN_USE", ex.getMessage(), request.getRequestURI(), null);
     }
 
-    @ExceptionHandler({DataAccessException.class})
+    @ExceptionHandler(ProjectInUseException.class)
     @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleDatabaseError(DataAccessException ex,
-                                                             HttpServletRequest request) {
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", rootMessage(ex), request.getRequestURI(), null);
+    public ResponseEntity<ApiErrorResponse> handleProjectInUse(ProjectInUseException ex,
+                                                               HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "PROJECT_IN_USE", ex.getMessage(), request.getRequestURI(), null);
     }
+
+    // ─── 401 / 403 Auth ─────────────────────────────────────────────────────────
 
     @ExceptionHandler({AuthenticationException.class, BadCredentialsException.class})
     @SuppressWarnings("unused")
@@ -144,11 +167,18 @@ public class ApiExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED", ex.getMessage(), request.getRequestURI(), null);
     }
 
-    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+    // ─── 415 / 413 Media ────────────────────────────────────────────────────────
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
     @SuppressWarnings("unused")
-    public ResponseEntity<ApiErrorResponse> handleNotFound(Exception ex,
-                                                           HttpServletRequest request) {
-        return build(HttpStatus.NOT_FOUND, "NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    public ResponseEntity<ApiErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
+                                                                       HttpServletRequest request) {
+        String contentType = ex.getContentType() == null ? "unknown" : ex.getContentType().toString();
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                "UNSUPPORTED_MEDIA_TYPE",
+                "Unsupported request content type (" + contentType + "). For multipart create/update, send the 'data' part as application/json and the file part as a file.",
+                request.getRequestURI(),
+                null);
     }
 
     @ExceptionHandler({MultipartException.class, MaxUploadSizeExceededException.class})
@@ -158,12 +188,25 @@ public class ApiExceptionHandler {
         return build(HttpStatus.valueOf(413), "UPLOAD_TOO_LARGE", ex.getMessage(), request.getRequestURI(), null);
     }
 
+    // ─── 500 Server Error ────────────────────────────────────────────────────────
+
+    @ExceptionHandler({DataAccessException.class})
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleDatabaseError(DataAccessException ex,
+                                                             HttpServletRequest request) {
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "DATABASE_ERROR", rootMessage(ex), request.getRequestURI(), null);
+    }
+
     @ExceptionHandler(Exception.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception ex,
                                                              HttpServletRequest request) {
-        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", ex.getMessage() == null ? "An unexpected error occurred." : ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR",
+                ex.getMessage() == null ? "An unexpected error occurred." : ex.getMessage(),
+                request.getRequestURI(), null);
     }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────────
 
     private ResponseEntity<ApiErrorResponse> build(HttpStatus status,
                                                     String error,
@@ -212,4 +255,3 @@ public class ApiExceptionHandler {
         return current.getMessage() != null ? current.getMessage() : throwable.getMessage();
     }
 }
-

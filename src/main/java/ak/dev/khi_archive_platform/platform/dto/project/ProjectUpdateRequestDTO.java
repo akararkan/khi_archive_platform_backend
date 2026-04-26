@@ -1,4 +1,4 @@
-package ak.dev.khi_archive_platform.platform.dto.object;
+package ak.dev.khi_archive_platform.platform.dto.project;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
@@ -13,13 +13,16 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
-@SuppressWarnings("unused")
-public class ObjectUpdateRequestDTO {
+public class ProjectUpdateRequestDTO {
 
-    private String objectName;
-    private String categoryCode;
+    private String projectName;
+
     private String description;
+
+    /** If provided, replaces the full list of category codes. */
+    private List<String> categoryCodes;
+
     private List<String> tags;
+
     private List<String> keywords;
 }
-

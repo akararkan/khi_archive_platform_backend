@@ -5,6 +5,7 @@ public enum PersonAuditAction {
     READ,
     LIST,
     UPDATE,
+    REMOVE,
     DELETE
 }
 
