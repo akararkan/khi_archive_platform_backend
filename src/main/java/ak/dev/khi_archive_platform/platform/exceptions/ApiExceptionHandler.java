@@ -63,7 +63,21 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "PROJECT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
     }
 
+    @ExceptionHandler(VideoValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleVideoValidation(VideoValidationException ex,
+                                                                  HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VIDEO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+    }
+
     // ─── 404 Not Found ──────────────────────────────────────────────────────────
+
+    @ExceptionHandler(VideoNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleVideoNotFound(VideoNotFoundException ex,
+                                                                HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "VIDEO_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
 
     @ExceptionHandler(AudioNotFoundException.class)
     @SuppressWarnings("unused")
@@ -114,6 +128,13 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleAudioAlreadyExists(AudioAlreadyExistsException ex,
                                                                      HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "AUDIO_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(VideoAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleVideoAlreadyExists(VideoAlreadyExistsException ex,
+                                                                     HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "VIDEO_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CategoryAlreadyExistsException.class)

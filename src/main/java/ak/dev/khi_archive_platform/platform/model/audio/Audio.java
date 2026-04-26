@@ -75,8 +75,11 @@ public class Audio {
     @Column(name = "type_of_maqam")
     private String typeOfMaqam;
 
-    @Column(name = "genre")
-    private String genre;
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "audio_genres", joinColumns = @JoinColumn(name = "audio_id"))
+    @Column(name = "genre", columnDefinition = "TEXT")
+    private List<String> genre = new ArrayList<>();
 
     @Column(name = "abstract_text", columnDefinition = "TEXT")
     private String abstractText;

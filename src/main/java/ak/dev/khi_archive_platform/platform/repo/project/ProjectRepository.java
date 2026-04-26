@@ -25,4 +25,6 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     boolean existsByCategoryAndRemovedAtIsNull(@Param("category") Category category);
 
     long countByPerson(Person person);
+
+    long countByPersonIsNull();
 }

@@ -36,7 +36,7 @@ public class AudioResponseDTO {
     private String form;
     private String typeOfBasta;
     private String typeOfMaqam;
-    private String genre;
+    private List<String> genre;
     private String abstractText;
     private String description;
     private String speaker;

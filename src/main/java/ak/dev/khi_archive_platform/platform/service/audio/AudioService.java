@@ -283,7 +283,7 @@ public class AudioService {
         response.setForm(audio.getForm());
         response.setTypeOfBasta(audio.getTypeOfBasta());
         response.setTypeOfMaqam(audio.getTypeOfMaqam());
-        response.setGenre(audio.getGenre());
+        response.setGenre(audio.getGenre() == null ? null : new ArrayList<>(audio.getGenre()));
         response.setAbstractText(audio.getAbstractText());
         response.setDescription(audio.getDescription());
         response.setSpeaker(audio.getSpeaker());

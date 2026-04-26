@@ -12,6 +12,7 @@ import ak.dev.khi_archive_platform.platform.repo.audio.AudioRepository;
 import ak.dev.khi_archive_platform.platform.repo.category.CategoryRepository;
 import ak.dev.khi_archive_platform.platform.repo.person.PersonRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.category.CategoryCodeHelper;
 import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,6 +38,7 @@ public class ProjectService {
     private final PersonRepository personRepository;
     private final CategoryRepository categoryRepository;
     private final AudioRepository audioRepository;
+    private final VideoRepository videoRepository;
     private final ProjectAuditService auditService;
 
     public ProjectResponseDTO create(ProjectCreateRequestDTO dto,
@@ -176,8 +178,8 @@ public class ProjectService {
                         .findFirst())
                 .orElseThrow(() -> new ProjectNotFoundException("Project not found: " + projectCode));
 
-        if (audioRepository.countByProject(project) > 0) {
-            throw new ProjectInUseException("Project has associated audio files and cannot be permanently deleted");
+        if (audioRepository.countByProject(project) > 0 || videoRepository.countByProject(project) > 0) {
+            throw new ProjectInUseException("Project has associated media files and cannot be permanently deleted");
         }
 
         auditService.record(project, ProjectAuditAction.DELETE, authentication, request,
@@ -188,15 +190,24 @@ public class ProjectService {
     // ─── Helpers ─────────────────────────────────────────────────────────────────
 
     /**
-     * Project code uses the first category code as the main identifier.
-     * Format: PERSONCODE_CATEGORYCODE or UNTITLED_CATEGORYCODE
+     * Generates a unique project code with a sequence number.
+     * <p>
+     * One person can have many projects, so the code includes a sequence:
+     * <ul>
+     *   <li>Person project: PERSONCODE_PROJ_000001, PERSONCODE_PROJ_000002, ...</li>
+     *   <li>Untitled project: UNTITLED_PROJ_000001, UNTITLED_PROJ_000002, ...</li>
+     * </ul>
      */
     private String generateProjectCode(Person person, List<Category> categories) {
         String prefix = person != null
                 ? person.getPersonCode().toUpperCase(Locale.ROOT)
                 : "UNTITLED";
-        String primaryCategoryCode = categories.get(0).getCategoryCode().toUpperCase(Locale.ROOT);
-        return prefix + "_" + primaryCategoryCode;
+
+        long sequence = (person != null
+                ? projectRepository.countByPerson(person)
+                : projectRepository.countByPersonIsNull()) + 1;
+
+        return prefix + "_PROJ_" + String.format(Locale.ROOT, "%06d", sequence);
     }
 
     private List<Category> resolveCategories(List<String> categoryCodes) {
