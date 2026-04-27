@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.audio;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.exceptions.AudioValidationException;
 import ak.dev.khi_archive_platform.platform.service.audio.AudioService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,7 +16,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
@@ -91,30 +94,26 @@ public class AudioAPI {
     }
 
     private <T> T parseAndValidate(String dataJson, Class<T> clazz) {
-        try {
-            if (dataJson == null || dataJson.isBlank()) {
-                throw new IllegalArgumentException("Missing 'data' part");
-            }
-
-            T dto = objectMapper.readValue(dataJson, clazz);
-
-            var violations = validator.validate(dto);
-            if (!violations.isEmpty()) {
-                StringBuilder sb = new StringBuilder();
-                for (ConstraintViolation<T> violation : violations) {
-                    sb.append(violation.getPropertyPath())
-                            .append(": ")
-                            .append(violation.getMessage())
-                            .append("; ");
-                }
-                throw new IllegalArgumentException("Validation failed: " + sb);
-            }
-
-            return dto;
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to parse 'data' part: " + e.getMessage(), e);
+        if (dataJson == null || dataJson.isBlank()) {
+            throw new AudioValidationException("Missing 'data' part in the request.");
         }
+
+        T dto;
+        try {
+            dto = objectMapper.readValue(dataJson, clazz);
+        } catch (Exception e) {
+            throw new AudioValidationException("Failed to parse audio data: " + e.getMessage());
+        }
+
+        var violations = validator.validate(dto);
+        if (!violations.isEmpty()) {
+            Map<String, String> fieldErrors = new LinkedHashMap<>();
+            for (ConstraintViolation<T> violation : violations) {
+                fieldErrors.put(violation.getPropertyPath().toString(), violation.getMessage());
+            }
+            throw new AudioValidationException("Validation failed for audio data.", fieldErrors);
+        }
+
+        return dto;
     }
 }

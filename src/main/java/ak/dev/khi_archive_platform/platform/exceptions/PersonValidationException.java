@@ -2,16 +2,16 @@ package ak.dev.khi_archive_platform.platform.exceptions;
 
 import java.util.Map;
 
-public class ProjectValidationException extends RuntimeException {
+public class PersonValidationException extends RuntimeException {
 
     private final Map<String, String> fieldErrors;
 
-    public ProjectValidationException(String message) {
+    public PersonValidationException(String message) {
         super(message);
         this.fieldErrors = null;
     }
 
-    public ProjectValidationException(String message, Map<String, String> fieldErrors) {
+    public PersonValidationException(String message, Map<String, String> fieldErrors) {
         super(message);
         this.fieldErrors = fieldErrors;
     }

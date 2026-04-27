@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.text;
 import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.exceptions.TextValidationException;
 import ak.dev.khi_archive_platform.platform.service.text.TextService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -15,7 +16,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
@@ -91,30 +94,26 @@ public class TextAPI {
     }
 
     private <T> T parseAndValidate(String dataJson, Class<T> clazz) {
-        try {
-            if (dataJson == null || dataJson.isBlank()) {
-                throw new IllegalArgumentException("Missing 'data' part");
-            }
-
-            T dto = objectMapper.readValue(dataJson, clazz);
-
-            var violations = validator.validate(dto);
-            if (!violations.isEmpty()) {
-                StringBuilder sb = new StringBuilder();
-                for (ConstraintViolation<T> violation : violations) {
-                    sb.append(violation.getPropertyPath())
-                            .append(": ")
-                            .append(violation.getMessage())
-                            .append("; ");
-                }
-                throw new IllegalArgumentException("Validation failed: " + sb);
-            }
-
-            return dto;
-        } catch (IllegalArgumentException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Failed to parse 'data' part: " + e.getMessage(), e);
+        if (dataJson == null || dataJson.isBlank()) {
+            throw new TextValidationException("Missing 'data' part in the request.");
         }
+
+        T dto;
+        try {
+            dto = objectMapper.readValue(dataJson, clazz);
+        } catch (Exception e) {
+            throw new TextValidationException("Failed to parse text data: " + e.getMessage());
+        }
+
+        var violations = validator.validate(dto);
+        if (!violations.isEmpty()) {
+            Map<String, String> fieldErrors = new LinkedHashMap<>();
+            for (ConstraintViolation<T> violation : violations) {
+                fieldErrors.put(violation.getPropertyPath().toString(), violation.getMessage());
+            }
+            throw new TextValidationException("Validation failed for text data.", fieldErrors);
+        }
+
+        return dto;
     }
 }

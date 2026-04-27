@@ -53,35 +53,42 @@ public class ApiExceptionHandler {
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleAudioValidation(AudioValidationException ex,
                                                                   HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "AUDIO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.BAD_REQUEST, "AUDIO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
     @ExceptionHandler(ProjectValidationException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleProjectValidation(ProjectValidationException ex,
                                                                     HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "PROJECT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.BAD_REQUEST, "PROJECT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
     @ExceptionHandler(VideoValidationException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleVideoValidation(VideoValidationException ex,
                                                                   HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "VIDEO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.BAD_REQUEST, "VIDEO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
     @ExceptionHandler(ImageValidationException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleImageValidation(ImageValidationException ex,
                                                                   HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "IMAGE_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.BAD_REQUEST, "IMAGE_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
     @ExceptionHandler(TextValidationException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleTextValidation(TextValidationException ex,
                                                                  HttpServletRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "TEXT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+        return build(HttpStatus.BAD_REQUEST, "TEXT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
+    }
+
+    @ExceptionHandler(PersonValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handlePersonValidation(PersonValidationException ex,
+                                                                   HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "PERSON_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
     // ─── 404 Not Found ──────────────────────────────────────────────────────────
@@ -308,6 +315,13 @@ public class ApiExceptionHandler {
             details.put(error.getField(), error.getDefaultMessage());
         }
         return details.isEmpty() ? null : details;
+    }
+
+    private Map<String, Object> toDetails(Map<String, String> fieldErrors) {
+        if (fieldErrors == null || fieldErrors.isEmpty()) {
+            return null;
+        }
+        return new LinkedHashMap<>(fieldErrors);
     }
 
     private String rootMessage(Throwable throwable) {
