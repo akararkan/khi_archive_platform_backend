@@ -70,6 +70,20 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "VIDEO_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
     }
 
+    @ExceptionHandler(ImageValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleImageValidation(ImageValidationException ex,
+                                                                  HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "IMAGE_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(TextValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleTextValidation(TextValidationException ex,
+                                                                 HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "TEXT_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), null);
+    }
+
     // ─── 404 Not Found ──────────────────────────────────────────────────────────
 
     @ExceptionHandler(VideoNotFoundException.class)
@@ -84,6 +98,20 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleAudioNotFound(AudioNotFoundException ex,
                                                                 HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "AUDIO_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(ImageNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleImageNotFound(ImageNotFoundException ex,
+                                                                HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "IMAGE_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(TextNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleTextNotFound(TextNotFoundException ex,
+                                                               HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "TEXT_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CategoryNotFoundException.class)
@@ -135,6 +163,20 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleVideoAlreadyExists(VideoAlreadyExistsException ex,
                                                                      HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "VIDEO_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(ImageAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleImageAlreadyExists(ImageAlreadyExistsException ex,
+                                                                     HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "IMAGE_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(TextAlreadyExistsException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleTextAlreadyExists(TextAlreadyExistsException ex,
+                                                                    HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "TEXT_ALREADY_EXISTS", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(CategoryAlreadyExistsException.class)
