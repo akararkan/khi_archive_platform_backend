@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
@@ -12,7 +14,11 @@ import java.util.List;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ProjectResponseDTO {
+public class ProjectResponseDTO implements Serializable {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
     private Long id;
     private String projectCode;
     private String projectName;
@@ -34,7 +40,9 @@ public class ProjectResponseDTO {
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class CategorySummary {
+    public static class CategorySummary implements Serializable {
+        @Serial
+        private static final long serialVersionUID = 1L;
         private Long id;
         private String categoryCode;
         private String categoryName;

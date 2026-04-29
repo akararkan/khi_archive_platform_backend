@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.platform.api.image;
 
+import ak.dev.khi_archive_platform.platform.dto.image.ImageBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageUpdateRequestDTO;
@@ -10,8 +11,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,11 +35,33 @@ public class ImageAPI {
     private final Validator validator;
 
     @GetMapping
-    public ResponseEntity<List<ImageResponseDTO>> getAll(Authentication auth, HttpServletRequest request) {
-        return ResponseEntity.ok(imageService.getAll(auth, request));
+    @PreAuthorize("hasAuthority('image:read')")
+    public ResponseEntity<Page<ImageResponseDTO>> getAll(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.getAll(pageable, auth, request));
+    }
+
+    /**
+     * Two-phase fuzzy search across Image text fields and child collections
+     * (subjects, genres, colors, usages, tags, keywords). Backed by pg_trgm GIN
+     * indexes — typo-tolerant, multilingual, sub-second on large tables.
+     */
+    @GetMapping("/search")
+    @PreAuthorize("hasAuthority('image:read')")
+    public ResponseEntity<List<ImageResponseDTO>> search(
+            @RequestParam("q") String q,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.search(q, limit, auth, request));
     }
 
     @GetMapping("/{imageCode}")
+    @PreAuthorize("hasAuthority('image:read')")
     public ResponseEntity<ImageResponseDTO> getByImageCode(
             @PathVariable String imageCode,
             Authentication auth,
@@ -44,6 +71,7 @@ public class ImageAPI {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('image:create')")
     public ResponseEntity<ImageResponseDTO> create(
             @RequestPart("data") String dataJson,
             @RequestPart("file") MultipartFile imageFile,
@@ -54,7 +82,23 @@ public class ImageAPI {
         return ResponseEntity.ok(imageService.create(dto, imageFile, auth, request));
     }
 
+    /**
+     * Bulk-create image records. Accepts a JSON array of bulk DTOs; each entry
+     * carries its own pre-uploaded {@code imageFileUrl} (no multipart). Image
+     * codes are auto-generated. One transaction, one audit summary.
+     */
+    @PostMapping(value = "/bulk", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('image:create')")
+    public ResponseEntity<ImageService.BulkCreateResult> createAll(
+            @RequestBody List<ImageBulkCreateRequestDTO> dtos,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.createAll(dtos, auth, request));
+    }
+
     @PatchMapping(value = "/{imageCode}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('image:update')")
     public ResponseEntity<ImageResponseDTO> update(
             @PathVariable String imageCode,
             @RequestPart("data") String dataJson,
@@ -70,6 +114,7 @@ public class ImageAPI {
      * Soft remove — marks the image as removed but keeps data in the database.
      */
     @PatchMapping("/{imageCode}/remove")
+    @PreAuthorize("hasAuthority('image:remove')")
     public ResponseEntity<Void> remove(
             @PathVariable String imageCode,
             Authentication auth,
@@ -81,9 +126,10 @@ public class ImageAPI {
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN only.
+     * Restricted to ADMIN only.
      */
     @DeleteMapping("/{imageCode}")
+    @PreAuthorize("hasAuthority('image:delete')")
     public ResponseEntity<Void> delete(
             @PathVariable String imageCode,
             Authentication auth,

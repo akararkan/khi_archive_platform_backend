@@ -4,6 +4,7 @@ public enum PersonAuditAction {
     CREATE,
     READ,
     LIST,
+    SEARCH,
     UPDATE,
     REMOVE,
     DELETE

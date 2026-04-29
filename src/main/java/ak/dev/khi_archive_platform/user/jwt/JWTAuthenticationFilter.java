@@ -24,6 +24,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.*;
@@ -93,7 +94,11 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
             // ─────────────────────────────────────────────────────────────────
             if (hasText(username) && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                List<GrantedAuthority> authorities = jwtTokenProvider.getAuthorities(token);
+                // Pull authorities from the live User entity (via Role) on every
+                // request — never from the JWT. JWT-frozen authorities go stale
+                // whenever the role/permission model changes or a user's role
+                // is updated, causing surprise 403s on otherwise-allowed calls.
+                List<GrantedAuthority> authorities = new ArrayList<>(userDetails.getAuthorities());
                 Authentication authentication = jwtTokenProvider.getAuthentication(userDetails, authorities, request);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
                 logger.debug("User '{}' authenticated successfully", username);

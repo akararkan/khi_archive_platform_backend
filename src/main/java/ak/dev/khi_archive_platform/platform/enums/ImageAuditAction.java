@@ -4,6 +4,7 @@ public enum ImageAuditAction {
     CREATE,
     READ,
     LIST,
+    SEARCH,
     UPDATE,
     REMOVE,
     DELETE

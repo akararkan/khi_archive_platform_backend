@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.platform.api.text;
 
+import ak.dev.khi_archive_platform.platform.dto.text.TextBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
@@ -10,8 +11,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,11 +35,32 @@ public class TextAPI {
     private final Validator validator;
 
     @GetMapping
-    public ResponseEntity<List<TextResponseDTO>> getAll(Authentication auth, HttpServletRequest request) {
-        return ResponseEntity.ok(textService.getAll(auth, request));
+    @PreAuthorize("hasAuthority('text:read')")
+    public ResponseEntity<Page<TextResponseDTO>> getAll(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(textService.getAll(pageable, auth, request));
+    }
+
+    /**
+     * Two-phase fuzzy search across Text fields and child collections
+     * (subjects, genres, tags, keywords). Backed by pg_trgm GIN indexes.
+     */
+    @GetMapping("/search")
+    @PreAuthorize("hasAuthority('text:read')")
+    public ResponseEntity<List<TextResponseDTO>> search(
+            @RequestParam("q") String q,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(textService.search(q, limit, auth, request));
     }
 
     @GetMapping("/{textCode}")
+    @PreAuthorize("hasAuthority('text:read')")
     public ResponseEntity<TextResponseDTO> getByTextCode(
             @PathVariable String textCode,
             Authentication auth,
@@ -44,6 +70,7 @@ public class TextAPI {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('text:create')")
     public ResponseEntity<TextResponseDTO> create(
             @RequestPart("data") String dataJson,
             @RequestPart("file") MultipartFile textFile,
@@ -54,7 +81,23 @@ public class TextAPI {
         return ResponseEntity.ok(textService.create(dto, textFile, auth, request));
     }
 
+    /**
+     * Bulk-create text records. Accepts a JSON array; each entry carries its
+     * own pre-uploaded {@code textFileUrl} (no multipart). Text codes are
+     * auto-generated. One transaction, one audit summary.
+     */
+    @PostMapping(value = "/bulk", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('text:create')")
+    public ResponseEntity<TextService.BulkCreateResult> createAll(
+            @RequestBody List<TextBulkCreateRequestDTO> dtos,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(textService.createAll(dtos, auth, request));
+    }
+
     @PatchMapping(value = "/{textCode}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('text:update')")
     public ResponseEntity<TextResponseDTO> update(
             @PathVariable String textCode,
             @RequestPart("data") String dataJson,
@@ -70,6 +113,7 @@ public class TextAPI {
      * Soft remove — marks the text as removed but keeps data in the database.
      */
     @PatchMapping("/{textCode}/remove")
+    @PreAuthorize("hasAuthority('text:remove')")
     public ResponseEntity<Void> remove(
             @PathVariable String textCode,
             Authentication auth,
@@ -81,9 +125,10 @@ public class TextAPI {
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN only.
+     * Restricted to ADMIN only.
      */
     @DeleteMapping("/{textCode}")
+    @PreAuthorize("hasAuthority('text:delete')")
     public ResponseEntity<Void> delete(
             @PathVariable String textCode,
             Authentication auth,

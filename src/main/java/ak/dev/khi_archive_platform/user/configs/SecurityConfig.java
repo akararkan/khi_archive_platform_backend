@@ -53,8 +53,20 @@ public class SecurityConfig {
                         // ── Preflight ──────────────────────────────────────────────
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        // ── Open all API endpoints ───────────────────────────────
-                        .requestMatchers("/api/**").permitAll()
+                        // ── Public auth endpoints (no token yet) ──────────────────
+                        .requestMatchers(
+                                "/api/auth/register",
+                                "/api/auth/register-with-image",
+                                "/api/auth/login",
+                                "/api/auth/reset-token",
+                                "/api/auth/reset-password"
+                        ).permitAll()
+
+                        // ── Everything under /api/** requires a valid token ───────
+                        // Fine-grained role/permission checks live on the
+                        // controller methods via @PreAuthorize.
+                        .requestMatchers("/api/**").authenticated()
+
                         // ── Everything else: must be authenticated ────────────────
                         .anyRequest().authenticated()
                 )

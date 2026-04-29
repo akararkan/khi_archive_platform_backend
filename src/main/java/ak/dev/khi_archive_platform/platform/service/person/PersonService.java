@@ -11,8 +11,11 @@ import ak.dev.khi_archive_platform.platform.exceptions.PersonNotFoundException;
 import ak.dev.khi_archive_platform.platform.model.person.Person;
 import ak.dev.khi_archive_platform.platform.repo.person.PersonRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -25,8 +28,6 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -39,6 +40,7 @@ public class PersonService {
     private final ProjectRepository projectRepository;
     private final PersonAuditService personAuditService;
     private final S3Service s3Service;
+    private final PersonReadCache readCache;
 
     public PersonResponseDTO createPerson(PersonCreateRequestDTO dto,
                                           MultipartFile mediaPortrait,
@@ -62,18 +64,59 @@ public class PersonService {
         touchCreateAudit(person, authentication);
 
         Person saved = personRepository.save(person);
+        readCache.evictAll();
         personAuditService.record(saved, PersonAuditAction.CREATE, authentication, request,
                 "Created person record with code=" + saved.getPersonCode());
-        return toResponse(saved);
+        return PersonMapper.toResponse(saved);
     }
 
+    /**
+     * Fast path: served from Redis on cache hit; on miss, single JOIN FETCH query
+     * loads persons + personType without N+1, maps to DTOs, caches for 10 min.
+     * Audit is always recorded (cache only fronts the read, not the audit).
+     */
     @Transactional(readOnly = true)
-    public List<PersonResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<PersonResponseDTO> result = personRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
+    public Page<PersonResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<PersonResponseDTO> all = readCache.getAllActive();
+        Page<PersonResponseDTO> page = PaginationSupport.sliceList(all, pageable);
         personAuditService.record(null, PersonAuditAction.LIST, authentication, request,
-                "Listed active person records");
+                "Listed active person records (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final double SEARCH_SIMILARITY_THRESHOLD = 0.3;
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+
+    /**
+     * Typo-tolerant fuzzy search across name (full/nickname/romanized), description,
+     * tags, keywords, region, places, code, and person_type. Powered by pg_trgm GIN
+     * indexes — language-agnostic, handles Kurdish/Arabic alongside Latin.
+     */
+    @Transactional(readOnly = true)
+    public List<PersonResponseDTO> search(String query,
+                                          Integer limit,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<PersonResponseDTO> result = personRepository
+                .searchByText(normalized, SEARCH_SIMILARITY_THRESHOLD, effectiveLimit)
+                .stream()
+                .map(PersonMapper::toResponse)
+                .toList();
+
+        personAuditService.record(null, PersonAuditAction.SEARCH, authentication, request,
+                "Searched persons q=\"" + normalized + "\" limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -86,7 +129,7 @@ public class PersonService {
                 .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
         personAuditService.record(person, PersonAuditAction.READ, authentication, request,
                 "Read person record");
-        return toResponse(person);
+        return PersonMapper.toResponse(person);
     }
 
     public PersonResponseDTO updatePerson(String personCode,
@@ -125,9 +168,10 @@ public class PersonService {
 
         touchUpdateAudit(person, authentication);
         Person saved = personRepository.save(person);
+        readCache.evictAll();
         personAuditService.record(saved, PersonAuditAction.UPDATE, authentication, request,
                 buildUpdateAuditDetails(before, saved, dto, mediaPortrait));
-        return toResponse(saved);
+        return PersonMapper.toResponse(saved);
     }
 
     /**
@@ -147,13 +191,14 @@ public class PersonService {
         person.setRemovedAt(Instant.now());
         person.setRemovedBy(resolveActorUsername(authentication));
         Person saved = personRepository.save(person);
+        readCache.evictAll();
         personAuditService.record(saved, PersonAuditAction.REMOVE, authentication, request,
                 "Removed person record (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code person:delete}) only.
      */
     public void deletePerson(String personCode,
                              Authentication authentication,
@@ -174,6 +219,7 @@ public class PersonService {
         personAuditService.record(person, PersonAuditAction.DELETE, authentication, request,
                 "Permanently deleted person record");
         personRepository.delete(person);
+        readCache.evictAll();
     }
 
     // ─── Field Helpers ───────────────────────────────────────────────────────────
@@ -284,14 +330,6 @@ public class PersonService {
         return String.join(",", cleaned);
     }
 
-    private List<String> splitToList(String s) {
-        if (s == null || s.isBlank()) return Collections.emptyList();
-        return Arrays.stream(s.split(","))
-                .map(String::trim)
-                .filter(str -> !str.isEmpty())
-                .collect(Collectors.toList());
-    }
-
     private void touchCreateAudit(Person person, Authentication authentication) {
         Instant now = Instant.now();
         String actor = resolveActorUsername(authentication);
@@ -325,43 +363,14 @@ public class PersonService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("person:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete person records");
         }
     }
 
-    private PersonResponseDTO toResponse(Person p) {
-        return PersonResponseDTO.builder()
-                .id(p.getId())
-                .personCode(p.getPersonCode())
-                .mediaPortrait(p.getMediaPortrait())
-                .fullName(p.getFullName())
-                .nickname(p.getNickname())
-                .romanizedName(p.getRomanizedName())
-                .gender(p.getGender())
-                .personType(p.getPersonType())
-                .region(p.getRegion())
-                .dateOfBirth(p.getDateOfBirth())
-                .dateOfBirthPrecision(p.getDateOfBirthPrecision())
-                .placeOfBirth(p.getPlaceOfBirth())
-                .dateOfDeath(p.getDateOfDeath())
-                .dateOfDeathPrecision(p.getDateOfDeathPrecision())
-                .placeOfDeath(p.getPlaceOfDeath())
-                .description(p.getDescription())
-                .tag(splitToList(p.getTag()))
-                .keywords(splitToList(p.getKeywords()))
-                .note(p.getNote())
-                .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
-                .removedAt(p.getRemovedAt())
-                .createdBy(p.getCreatedBy())
-                .updatedBy(p.getUpdatedBy())
-                .removedBy(p.getRemovedBy())
-                .build();
-    }
 
     // ─── Audit Details ───────────────────────────────────────────────────────────
 

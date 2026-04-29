@@ -4,6 +4,7 @@ public enum CategoryAuditAction {
     CREATE,
     READ,
     LIST,
+    SEARCH,
     UPDATE,
     REMOVE,
     DELETE

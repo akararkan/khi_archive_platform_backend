@@ -4,6 +4,7 @@ public enum AudioAuditAction {
     CREATE,
     READ,
     LIST,
+    SEARCH,
     UPDATE,
     REMOVE,
     DELETE

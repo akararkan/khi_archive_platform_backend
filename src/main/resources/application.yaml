@@ -23,8 +23,18 @@ spring:
         format_sql: true
         use_sql_comments: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        # Batches lazy collection/association fetches into IN(?,?,...) queries.
+        # Eliminates N+1 across multi-collection entities (Image/Text/Video/Audio
+        # have 6+ child collections each). 1000 IDs/batch matches the page size
+        # we use for the cached getAll endpoints.
+        default_batch_fetch_size: 1000
         jdbc:
           time_zone: UTC
+          # Lets bulk-create / saveAll batch the INSERT statements instead of
+          # one round-trip per row.
+          batch_size: 100
+        order_inserts: true
+        order_updates: true
 
   # ===============================
   # WEB MVC / I18N

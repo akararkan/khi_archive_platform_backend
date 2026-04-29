@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.image;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageBaseRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.image.ImageBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageUpdateRequestDTO;
@@ -14,9 +15,15 @@ import ak.dev.khi_archive_platform.platform.model.image.Image;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.image.ImageRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -26,8 +33,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -46,6 +55,42 @@ public class ImageService {
     private final ProjectRepository projectRepository;
     private final ImageAuditService imageAuditService;
     private final S3Service s3Service;
+    private final ImageReadCache readCache;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    private static final MediaSearchSqlBuilder.Spec IMAGE_SEARCH_SPEC = new MediaSearchSqlBuilder.Spec(
+            "images",
+            "id",
+            // Primary fields — boosted in tier-1/tier-2 ranking.
+            List.of(
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "image_code", "file_name",
+                    "creator_artist_photographer", "person_shown_in_image",
+                    "event", "location"
+            ),
+            // Every searchable text column on `images`.
+            List.of(
+                    "image_code", "file_name", "volume_name", "directory", "path_in_external_volume", "auto_path",
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "form", "event", "location", "description",
+                    "person_shown_in_image", "image_version",
+                    "manufacturer", "model", "lens",
+                    "creator_artist_photographer", "contributor", "audience",
+                    "accrual_method", "provenance", "photostory", "image_status", "archive_cataloging",
+                    "physical_label", "location_in_archive_room", "lcc_classification", "note",
+                    "copyright", "right_owner", "license_type", "usage_rights", "availability", "owner", "publisher"
+            ),
+            List.of(
+                    new MediaSearchSqlBuilder.ChildTable("image_subjects", "image_id", "subject"),
+                    new MediaSearchSqlBuilder.ChildTable("image_genres",   "image_id", "genre"),
+                    new MediaSearchSqlBuilder.ChildTable("image_colors",   "image_id", "color"),
+                    new MediaSearchSqlBuilder.ChildTable("image_usages",   "image_id", "usage_context"),
+                    new MediaSearchSqlBuilder.ChildTable("image_tags",     "image_id", "tag"),
+                    new MediaSearchSqlBuilder.ChildTable("image_keywords", "image_id", "keyword")
+            )
+    );
 
     public ImageResponseDTO create(ImageCreateRequestDTO dto,
                                    MultipartFile imageFile,
@@ -82,16 +127,157 @@ public class ImageService {
         touchCreateAudit(image, authentication);
 
         Image saved = imageRepository.save(image);
+        readCache.evictAll();
         imageAuditService.record(saved, ImageAuditAction.CREATE, authentication, request, buildCreateDetails(saved));
         return toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skipped, long elapsedMs) {}
+
+    /**
+     * Bulk-create image records from a JSON array. Each entry carries its own
+     * {@code imageFileUrl} (no multipart upload). Image codes are auto-generated
+     * using an in-memory per-project counter so we don't issue a count() per
+     * insert. Rows that fail validation or whose generated code already exists
+     * are skipped. One audit row records the batch summary.
+     */
+    public BulkCreateResult createAll(List<ImageBulkCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        Map<String, Project> projectByCode = new HashMap<>();
+        Map<Long, Long> nextSeqByProject = new HashMap<>();
+
+        List<Image> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (ImageBulkCreateRequestDTO dto : dtos) {
+            if (dto == null || dto.getProjectCode() == null || dto.getProjectCode().isBlank()
+                    || dto.getImageVersion() == null
+                    || dto.getVersionNumber() == null || dto.getVersionNumber() < 1
+                    || dto.getCopyNumber() == null || dto.getCopyNumber() < 1) {
+                skipped++;
+                continue;
+            }
+            String version = dto.getImageVersion().toUpperCase(Locale.ROOT);
+            if (!VALID_VERSIONS.contains(version)) {
+                skipped++;
+                continue;
+            }
+
+            Project project;
+            try {
+                project = projectByCode.computeIfAbsent(dto.getProjectCode().trim(), this::resolveProject);
+            } catch (Exception e) {
+                skipped++;
+                continue;
+            }
+
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
+                    pid -> imageRepository.countByProject(project) + 1L);
+            String parentCode = project.getPerson() != null
+                    ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+            String imageCode = parentCode
+                    + "_IMG_" + version
+                    + "_V" + dto.getVersionNumber()
+                    + "_Copy(" + dto.getCopyNumber() + ")"
+                    + "_" + String.format(Locale.ROOT, "%06d", seq);
+            nextSeqByProject.put(project.getId(), seq + 1);
+
+            if (imageRepository.existsByImageCode(imageCode)) {
+                skipped++;
+                continue;
+            }
+
+            Image image = new Image();
+            image.setImageCode(imageCode);
+            image.setProject(project);
+            applyDto(image, dto);
+            image.setImageFileUrl(dto.getImageFileUrl());
+            image.setCreatedAt(now);
+            image.setUpdatedAt(now);
+            image.setCreatedBy(actor);
+            image.setUpdatedBy(actor);
+            toInsert.add(image);
+        }
+
+        imageRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        imageAuditService.record(null, ImageAuditAction.CREATE, authentication, request,
+                "Bulk created images: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skipped=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /**
+     * Fast path: served from Redis on cache hit. On miss, one query loads
+     * active images; lazy collections (subjects/genres/colors/usages/tags/
+     * keywords + project) are batched-fetched (no N+1) thanks to Hibernate's
+     * {@code default_batch_fetch_size}, then mapped to DTOs and cached for
+     * 10 minutes. Audit is always recorded.
+     */
     @Transactional(readOnly = true)
-    public List<ImageResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<ImageResponseDTO> result = imageRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
-        imageAuditService.record(null, ImageAuditAction.LIST, authentication, request, "Listed active image records");
+    public Page<ImageResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<ImageResponseDTO> all = readCache.getAllActive();
+        Page<ImageResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        imageAuditService.record(null, ImageAuditAction.LIST, authentication, request,
+                "Listed active image records (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+    private static final int SEARCH_PREFILTER_LIMIT = 2000;
+
+    /**
+     * Multi-token AND search. The query is tokenized on whitespace; every
+     * resulting token must match SOMEWHERE on the row (any field, any child
+     * collection) via prefix, substring, or trigram fuzzy. Ranking is summed
+     * across tokens: tier-1 prefix on primary cols, tier-2 substring on primary
+     * cols, tier-3 trigram similarity. Latency stays flat at any table size
+     * because each token's candidate set is bounded by SEARCH_PREFILTER_LIMIT.
+     */
+    @Transactional(readOnly = true)
+    public List<ImageResponseDTO> search(String query,
+                                         Integer limit,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<String> tokens = MediaSearchSqlBuilder.tokenize(normalized);
+        if (tokens.isEmpty()) {
+            return List.of();
+        }
+        MediaSearchSqlBuilder.Built built = MediaSearchSqlBuilder.build(
+                IMAGE_SEARCH_SPEC, tokens, SEARCH_PREFILTER_LIMIT, effectiveLimit);
+        jakarta.persistence.Query nq = entityManager.createNativeQuery(built.sql(), Image.class);
+        built.params().forEach(nq::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Image> rows = (List<Image>) nq.getResultList();
+        List<ImageResponseDTO> result = rows.stream().map(this::toResponse).toList();
+
+        imageAuditService.record(null, ImageAuditAction.SEARCH, authentication, request,
+                "Searched images q=\"" + normalized + "\" tokens=" + tokens
+                        + " limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -132,6 +318,7 @@ public class ImageService {
 
         touchUpdateAudit(image, authentication);
         Image saved = imageRepository.save(image);
+        readCache.evictAll();
         imageAuditService.record(saved, ImageAuditAction.UPDATE, authentication, request, buildUpdateDetails(before, saved));
         return toResponse(saved);
     }
@@ -149,12 +336,13 @@ public class ImageService {
         image.setRemovedAt(Instant.now());
         image.setRemovedBy(resolveActorUsername(authentication));
         Image saved = imageRepository.save(image);
+        readCache.evictAll();
         imageAuditService.record(saved, ImageAuditAction.REMOVE, authentication, request, "Removed image record (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code image:delete}) only.
      */
     public void delete(String imageCode,
                        Authentication authentication,
@@ -170,6 +358,7 @@ public class ImageService {
         String imageFileUrl = image.getImageFileUrl();
         imageAuditService.record(image, ImageAuditAction.DELETE, authentication, request, "Permanently deleted image record");
         imageRepository.delete(image);
+        readCache.evictAll();
         deleteStoredFile(imageFileUrl);
     }
 
@@ -235,7 +424,7 @@ public class ImageService {
         if (dto.getImageVersion() != null) image.setImageVersion(dto.getImageVersion().toUpperCase(Locale.ROOT));
     }
 
-    private ImageResponseDTO toResponse(Image image) {
+    ImageResponseDTO toResponse(Image image) {
         if (image == null) {
             return null;
         }
@@ -468,11 +657,11 @@ public class ImageService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("image:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete image records");
         }
     }
 
@@ -487,5 +676,15 @@ public class ImageService {
 
     private List<String> copyList(List<String> list) {
         return list == null ? null : new ArrayList<>(list);
+    }
+
+    /**
+     * Escapes the SQL LIKE wildcards (%, _) and the escape char (\) in a user
+     * query so they're treated as literal characters when bound into LIKE
+     * patterns with {@code ESCAPE '\\'}. Without this, typing "50%" would match
+     * everything starting with "50".
+     */
+    private static String escapeLikeWildcards(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

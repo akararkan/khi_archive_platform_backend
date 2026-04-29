@@ -10,8 +10,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,11 +34,33 @@ public class PersonAPI {
     private final Validator validator;
 
     @GetMapping
-    public ResponseEntity<List<PersonResponseDTO>> getAll(Authentication auth, HttpServletRequest request) {
-        return ResponseEntity.ok(personService.getAll(auth, request));
+    @PreAuthorize("hasAuthority('person:read')")
+    public ResponseEntity<Page<PersonResponseDTO>> getAll(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(personService.getAll(pageable, auth, request));
+    }
+
+    /**
+     * Fuzzy, typo-tolerant search across full_name, nickname, romanized_name,
+     * description, tag, keywords, region, places, code, and person_type.
+     * Backed by PostgreSQL pg_trgm GIN indexes — multilingual and fast.
+     */
+    @GetMapping("/search")
+    @PreAuthorize("hasAuthority('person:read')")
+    public ResponseEntity<List<PersonResponseDTO>> search(
+            @RequestParam("q") String q,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(personService.search(q, limit, auth, request));
     }
 
     @GetMapping("/{personCode}")
+    @PreAuthorize("hasAuthority('person:read')")
     public ResponseEntity<PersonResponseDTO> getByPersonCode(
             @PathVariable String personCode,
             Authentication auth,
@@ -44,6 +70,7 @@ public class PersonAPI {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('person:create')")
     public ResponseEntity<PersonResponseDTO> create(
             @RequestPart("data") String dataJson,
             @RequestPart("mediaPortrait") MultipartFile mediaPortrait,
@@ -55,6 +82,7 @@ public class PersonAPI {
     }
 
     @PatchMapping(value = "/{personCode}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('person:update')")
     public ResponseEntity<PersonResponseDTO> update(
             @PathVariable String personCode,
             @RequestPart("data") String dataJson,
@@ -70,6 +98,7 @@ public class PersonAPI {
      * Soft remove — marks the person as removed but keeps data in the database.
      */
     @PatchMapping("/{personCode}/remove")
+    @PreAuthorize("hasAuthority('person:remove')")
     public ResponseEntity<Void> remove(
             @PathVariable String personCode,
             Authentication auth,
@@ -81,9 +110,10 @@ public class PersonAPI {
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN only.
+     * Restricted to ADMIN only.
      */
     @DeleteMapping("/{personCode}")
+    @PreAuthorize("hasAuthority('person:delete')")
     public ResponseEntity<Void> delete(
             @PathVariable String personCode,
             Authentication auth,

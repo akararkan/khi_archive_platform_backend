@@ -14,9 +14,12 @@ import ak.dev.khi_archive_platform.platform.repo.person.PersonRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.category.CategoryCodeHelper;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -25,8 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,6 +45,7 @@ public class ProjectService {
     private final AudioRepository audioRepository;
     private final VideoRepository videoRepository;
     private final ProjectAuditService auditService;
+    private final ProjectReadCache readCache;
 
     public ProjectResponseDTO create(ProjectCreateRequestDTO dto,
                                      Authentication authentication,
@@ -71,6 +77,7 @@ public class ProjectService {
 
         touchCreateAudit(project, authentication);
         Project saved = projectRepository.save(project);
+        readCache.evictAll();
 
         String categorySummary = categories.stream()
                 .map(Category::getCategoryCode)
@@ -82,14 +89,106 @@ public class ProjectService {
         return toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skipped, long elapsedMs) {}
+
+    /**
+     * Bulk-create projects in a single transaction. Project codes are
+     * auto-generated using an in-memory per-prefix counter so we don't issue a
+     * count() per insert. Rows whose generated code already exists are skipped.
+     * One audit row records the batch summary.
+     */
+    public BulkCreateResult createAll(List<ProjectCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        // Prefix → next sequence number. Untitled projects share one counter;
+        // person-coded projects each have their own.
+        Map<String, Long> nextSeq = new HashMap<>();
+
+        List<Project> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (ProjectCreateRequestDTO dto : dtos) {
+            if (dto == null
+                    || dto.getProjectName() == null || dto.getProjectName().isBlank()
+                    || dto.getCategoryCodes() == null || dto.getCategoryCodes().isEmpty()) {
+                skipped++;
+                continue;
+            }
+            List<Category> categories;
+            Person person;
+            try {
+                categories = resolveCategories(dto.getCategoryCodes());
+                person = resolvePerson(dto.getPersonCode());
+            } catch (Exception e) {
+                skipped++;
+                continue;
+            }
+
+            String prefix = person != null
+                    ? person.getPersonCode().toUpperCase(Locale.ROOT)
+                    : "UNTITLED";
+            long seq = nextSeq.computeIfAbsent(prefix, p -> (person != null
+                    ? projectRepository.countByPerson(person)
+                    : projectRepository.countByPersonIsNull()) + 1L);
+            String projectCode = prefix + "_PROJ_" + String.format(Locale.ROOT, "%06d", seq);
+            nextSeq.put(prefix, seq + 1);
+
+            if (projectRepository.existsByProjectCodeAndRemovedAtIsNull(projectCode)) {
+                skipped++;
+                continue;
+            }
+
+            Project project = Project.builder()
+                    .projectCode(projectCode)
+                    .projectName(dto.getProjectName())
+                    .person(person)
+                    .categories(new ArrayList<>(categories))
+                    .description(dto.getDescription())
+                    .tags(dto.getTags() != null ? new ArrayList<>(dto.getTags()) : new ArrayList<>())
+                    .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .createdBy(actor)
+                    .updatedBy(actor)
+                    .build();
+            toInsert.add(project);
+        }
+
+        projectRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        auditService.record(null, ProjectAuditAction.CREATE, authentication, request,
+                "Bulk created projects: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skipped=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /**
+     * Fast path: served from Redis on cache hit. On miss, one query loads
+     * active projects; collections are batched-fetched (no N+1) thanks to
+     * Hibernate's {@code default_batch_fetch_size}, then mapped to DTOs and
+     * cached for 10 minutes. Audit is always recorded (cache fronts the read
+     * but not the audit row).
+     */
     @Transactional(readOnly = true)
-    public List<ProjectResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<ProjectResponseDTO> result = projectRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
+    public Page<ProjectResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<ProjectResponseDTO> all = readCache.getAllActive();
+        Page<ProjectResponseDTO> page = PaginationSupport.sliceList(all, pageable);
         auditService.record(null, ProjectAuditAction.LIST, authentication, request,
-                "Listed active projects");
-        return result;
+                "Listed active projects (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     @Transactional(readOnly = true)
@@ -139,6 +238,7 @@ public class ProjectService {
 
         touchUpdateAudit(project, authentication);
         Project saved = projectRepository.save(project);
+        readCache.evictAll();
         String detail = changes.isEmpty()
                 ? "Updated project (no field changes detected)"
                 : "Updated project: " + trimTrailingSeparator(changes.toString());
@@ -159,13 +259,14 @@ public class ProjectService {
         project.setRemovedAt(Instant.now());
         project.setRemovedBy(resolveActorUsername(authentication));
         Project saved = projectRepository.save(project);
+        readCache.evictAll();
         auditService.record(saved, ProjectAuditAction.REMOVE, authentication, request,
                 "Removed project (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code project:delete}) only.
      */
     public void delete(String projectCode,
                        Authentication authentication,
@@ -185,6 +286,7 @@ public class ProjectService {
         auditService.record(project, ProjectAuditAction.DELETE, authentication, request,
                 "Permanently deleted project");
         projectRepository.delete(project);
+        readCache.evictAll();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -265,11 +367,11 @@ public class ProjectService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("project:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete project records");
         }
     }
 

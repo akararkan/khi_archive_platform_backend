@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.audio;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioBaseRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.audio.AudioBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioUpdateRequestDTO;
@@ -14,9 +15,15 @@ import ak.dev.khi_archive_platform.platform.model.audio.Audio;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.audio.AudioRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -26,8 +33,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -41,6 +50,43 @@ public class AudioService {
     private final ProjectRepository projectRepository;
     private final AudioAuditService audioAuditService;
     private final S3Service s3Service;
+    private final AudioReadCache readCache;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    private static final MediaSearchSqlBuilder.Spec AUDIO_SEARCH_SPEC = new MediaSearchSqlBuilder.Spec(
+            "audios",
+            "id",
+            List.of(
+                    "origin_title", "alter_title", "central_kurdish_title", "romanized_title",
+                    "audio_code", "fullname",
+                    "speaker", "composer", "poet", "producer",
+                    "city", "region", "type_of_basta", "type_of_maqam"
+            ),
+            List.of(
+                    "audio_code", "fullname", "volume_name", "directory_name", "path_in_external", "auto_path",
+                    "origin_title", "alter_title", "central_kurdish_title", "romanized_title",
+                    "form", "type_of_basta", "type_of_maqam",
+                    "abstract_text", "description",
+                    "speaker", "producer", "composer",
+                    "language", "dialect", "type_of_composition", "type_of_performance",
+                    "lyrics", "poet",
+                    "recording_venue", "city", "region", "audience",
+                    "physical_label", "location_archive",
+                    "degitized_by", "degitization_equipment", "audio_file_note",
+                    "audio_channel", "audio_version",
+                    "lcc_classification", "accrual_method", "provenance",
+                    "copyright", "right_owner", "availability", "license_type", "usage_rights",
+                    "owner", "publisher", "archive_local_note"
+            ),
+            List.of(
+                    new MediaSearchSqlBuilder.ChildTable("audio_genres",       "audio_id", "genre"),
+                    new MediaSearchSqlBuilder.ChildTable("audio_contributors", "audio_id", "contributor"),
+                    new MediaSearchSqlBuilder.ChildTable("audio_tags",         "audio_id", "tag"),
+                    new MediaSearchSqlBuilder.ChildTable("audio_keywords",     "audio_id", "keyword")
+            )
+    );
 
     public AudioResponseDTO create(AudioCreateRequestDTO dto,
                                    MultipartFile audioFile,
@@ -77,16 +123,145 @@ public class AudioService {
         touchCreateAudit(audio, authentication);
 
         Audio saved = audioRepository.save(audio);
+        readCache.evictAll();
         audioAuditService.record(saved, AudioAuditAction.CREATE, authentication, request, buildCreateDetails(saved));
         return toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skipped, long elapsedMs) {}
+
+    /**
+     * Bulk-create audio records from a JSON array. Each entry carries its own
+     * {@code audioFileUrl} (no multipart upload). Audio codes are auto-generated
+     * using an in-memory per-project counter. Rows that fail validation or
+     * whose generated code already exists are skipped. One audit summary.
+     */
+    public BulkCreateResult createAll(List<AudioBulkCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        Map<String, Project> projectByCode = new HashMap<>();
+        Map<Long, Long> nextSeqByProject = new HashMap<>();
+
+        List<Audio> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (AudioBulkCreateRequestDTO dto : dtos) {
+            if (dto == null || dto.getProjectCode() == null || dto.getProjectCode().isBlank()
+                    || dto.getAudioVersion() == null
+                    || dto.getVersionNumber() == null || dto.getVersionNumber() < 1
+                    || dto.getCopyNumber() == null || dto.getCopyNumber() < 1) {
+                skipped++;
+                continue;
+            }
+            String version = dto.getAudioVersion().toUpperCase(Locale.ROOT);
+            if (!"RAW".equals(version) && !"MASTER".equals(version)) {
+                skipped++;
+                continue;
+            }
+
+            Project project;
+            try {
+                project = projectByCode.computeIfAbsent(dto.getProjectCode().trim(), this::resolveProject);
+            } catch (Exception e) {
+                skipped++;
+                continue;
+            }
+
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
+                    pid -> audioRepository.countByProject(project) + 1L);
+            String parentCode = project.getPerson() != null
+                    ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+            String audioCode = parentCode
+                    + "_AUD_" + version
+                    + "_V" + dto.getVersionNumber()
+                    + "_Copy(" + dto.getCopyNumber() + ")"
+                    + "_" + String.format(Locale.ROOT, "%06d", seq);
+            nextSeqByProject.put(project.getId(), seq + 1);
+
+            if (audioRepository.existsByAudioCode(audioCode)) {
+                skipped++;
+                continue;
+            }
+
+            Audio audio = new Audio();
+            audio.setAudioCode(audioCode);
+            audio.setProject(project);
+            applyDto(audio, dto);
+            audio.setAudioFileUrl(dto.getAudioFileUrl());
+            audio.setCreatedAt(now);
+            audio.setUpdatedAt(now);
+            audio.setCreatedBy(actor);
+            audio.setUpdatedBy(actor);
+            toInsert.add(audio);
+        }
+
+        audioRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        audioAuditService.record(null, AudioAuditAction.CREATE, authentication, request,
+                "Bulk created audios: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skipped=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
     @Transactional(readOnly = true)
-    public List<AudioResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<AudioResponseDTO> result = audioRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
-        audioAuditService.record(null, AudioAuditAction.LIST, authentication, request, "Listed active audio records");
+    public Page<AudioResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<AudioResponseDTO> all = readCache.getAllActive();
+        Page<AudioResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        audioAuditService.record(null, AudioAuditAction.LIST, authentication, request,
+                "Listed active audio records (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+    private static final int SEARCH_PREFILTER_LIMIT = 2000;
+
+    /**
+     * Multi-token AND search. See ImageService.search for the full algorithm.
+     */
+    @Transactional(readOnly = true)
+    public List<AudioResponseDTO> search(String query,
+                                         Integer limit,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<String> tokens = MediaSearchSqlBuilder.tokenize(normalized);
+        if (tokens.isEmpty()) {
+            return List.of();
+        }
+        MediaSearchSqlBuilder.Built built = MediaSearchSqlBuilder.build(
+                AUDIO_SEARCH_SPEC, tokens, SEARCH_PREFILTER_LIMIT, effectiveLimit);
+        jakarta.persistence.Query nq = entityManager.createNativeQuery(built.sql(), Audio.class);
+        built.params().forEach(nq::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Audio> rows = (List<Audio>) nq.getResultList();
+        List<AudioResponseDTO> result = rows.stream().map(this::toResponse).toList();
+
+        audioAuditService.record(null, AudioAuditAction.SEARCH, authentication, request,
+                "Searched audios q=\"" + normalized + "\" tokens=" + tokens
+                        + " limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -127,6 +302,7 @@ public class AudioService {
 
         touchUpdateAudit(audio, authentication);
         Audio saved = audioRepository.save(audio);
+        readCache.evictAll();
         audioAuditService.record(saved, AudioAuditAction.UPDATE, authentication, request, buildUpdateDetails(before, saved));
         return toResponse(saved);
     }
@@ -144,12 +320,13 @@ public class AudioService {
         audio.setRemovedAt(Instant.now());
         audio.setRemovedBy(resolveActorUsername(authentication));
         Audio saved = audioRepository.save(audio);
+        readCache.evictAll();
         audioAuditService.record(saved, AudioAuditAction.REMOVE, authentication, request, "Removed audio record (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code audio:delete}) only.
      */
     public void delete(String audioCode,
                        Authentication authentication,
@@ -165,6 +342,7 @@ public class AudioService {
         String audioFileUrl = audio.getAudioFileUrl();
         audioAuditService.record(audio, AudioAuditAction.DELETE, authentication, request, "Permanently deleted audio record");
         audioRepository.delete(audio);
+        readCache.evictAll();
         deleteStoredFile(audioFileUrl);
     }
 
@@ -245,7 +423,7 @@ public class AudioService {
         if (dto.getAudioVersion() != null) audio.setAudioVersion(dto.getAudioVersion().toUpperCase(Locale.ROOT));
     }
 
-    private AudioResponseDTO toResponse(Audio audio) {
+    AudioResponseDTO toResponse(Audio audio) {
         if (audio == null) {
             return null;
         }
@@ -485,11 +663,11 @@ public class AudioService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("audio:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete audio records");
         }
     }
 
@@ -500,5 +678,10 @@ public class AudioService {
         Audio copy = new Audio();
         BeanUtils.copyProperties(audio, copy);
         return copy;
+    }
+
+    /** Escape SQL LIKE wildcards in user input. See ImageService for details. */
+    private static String escapeLikeWildcards(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

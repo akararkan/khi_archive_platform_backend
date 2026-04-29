@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.text;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.text.TextBaseRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.text.TextBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
@@ -14,9 +15,15 @@ import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.text.Text;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.text.TextRepository;
+import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -26,8 +33,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -46,6 +55,37 @@ public class TextService {
     private final ProjectRepository projectRepository;
     private final TextAuditService textAuditService;
     private final S3Service s3Service;
+    private final TextReadCache readCache;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    private static final MediaSearchSqlBuilder.Spec TEXT_SEARCH_SPEC = new MediaSearchSqlBuilder.Spec(
+            "texts",
+            "id",
+            List.of(
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "text_code", "file_name",
+                    "author", "isbn"
+            ),
+            List.of(
+                    "text_code", "file_name", "volume_name", "directory", "path_in_external_volume", "auto_path",
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "document_type", "description",
+                    "script", "transcription", "isbn", "assignment_number", "edition", "volume", "series", "text_version",
+                    "language", "dialect",
+                    "author", "contributors", "printing_house", "audience",
+                    "accrual_method", "provenance", "text_status", "archive_cataloging",
+                    "physical_label", "location_in_archive_room", "lcc_classification", "note",
+                    "copyright", "right_owner", "license_type", "usage_rights", "availability", "owner", "publisher"
+            ),
+            List.of(
+                    new MediaSearchSqlBuilder.ChildTable("text_subjects", "text_id", "subject"),
+                    new MediaSearchSqlBuilder.ChildTable("text_genres",   "text_id", "genre"),
+                    new MediaSearchSqlBuilder.ChildTable("text_tags",     "text_id", "tag"),
+                    new MediaSearchSqlBuilder.ChildTable("text_keywords", "text_id", "keyword")
+            )
+    );
 
     public TextResponseDTO create(TextCreateRequestDTO dto,
                                   MultipartFile textFile,
@@ -82,16 +122,145 @@ public class TextService {
         touchCreateAudit(text, authentication);
 
         Text saved = textRepository.save(text);
+        readCache.evictAll();
         textAuditService.record(saved, TextAuditAction.CREATE, authentication, request, buildCreateDetails(saved));
         return toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skipped, long elapsedMs) {}
+
+    /**
+     * Bulk-create text records from a JSON array. Each entry carries its own
+     * {@code textFileUrl} (no multipart upload). Text codes are auto-generated
+     * using an in-memory per-project counter. Rows that fail validation or
+     * whose generated code already exists are skipped. One audit summary.
+     */
+    public BulkCreateResult createAll(List<TextBulkCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        Map<String, Project> projectByCode = new HashMap<>();
+        Map<Long, Long> nextSeqByProject = new HashMap<>();
+
+        List<Text> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (TextBulkCreateRequestDTO dto : dtos) {
+            if (dto == null || dto.getProjectCode() == null || dto.getProjectCode().isBlank()
+                    || dto.getTextVersion() == null
+                    || dto.getVersionNumber() == null || dto.getVersionNumber() < 1
+                    || dto.getCopyNumber() == null || dto.getCopyNumber() < 1) {
+                skipped++;
+                continue;
+            }
+            String version = dto.getTextVersion().toUpperCase(Locale.ROOT);
+            if (!VALID_VERSIONS.contains(version)) {
+                skipped++;
+                continue;
+            }
+
+            Project project;
+            try {
+                project = projectByCode.computeIfAbsent(dto.getProjectCode().trim(), this::resolveProject);
+            } catch (Exception e) {
+                skipped++;
+                continue;
+            }
+
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
+                    pid -> textRepository.countByProject(project) + 1L);
+            String parentCode = project.getPerson() != null
+                    ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+            String textCode = parentCode
+                    + "_TXT_" + version
+                    + "_V" + dto.getVersionNumber()
+                    + "_Copy(" + dto.getCopyNumber() + ")"
+                    + "_" + String.format(Locale.ROOT, "%06d", seq);
+            nextSeqByProject.put(project.getId(), seq + 1);
+
+            if (textRepository.existsByTextCode(textCode)) {
+                skipped++;
+                continue;
+            }
+
+            Text text = new Text();
+            text.setTextCode(textCode);
+            text.setProject(project);
+            applyDto(text, dto);
+            text.setTextFileUrl(dto.getTextFileUrl());
+            text.setCreatedAt(now);
+            text.setUpdatedAt(now);
+            text.setCreatedBy(actor);
+            text.setUpdatedBy(actor);
+            toInsert.add(text);
+        }
+
+        textRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        textAuditService.record(null, TextAuditAction.CREATE, authentication, request,
+                "Bulk created texts: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skipped=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
     @Transactional(readOnly = true)
-    public List<TextResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<TextResponseDTO> result = textRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
-        textAuditService.record(null, TextAuditAction.LIST, authentication, request, "Listed active text records");
+    public Page<TextResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<TextResponseDTO> all = readCache.getAllActive();
+        Page<TextResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        textAuditService.record(null, TextAuditAction.LIST, authentication, request,
+                "Listed active text records (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+    private static final int SEARCH_PREFILTER_LIMIT = 2000;
+
+    /**
+     * Multi-token AND search. See ImageService.search for the full algorithm.
+     */
+    @Transactional(readOnly = true)
+    public List<TextResponseDTO> search(String query,
+                                        Integer limit,
+                                        Authentication authentication,
+                                        HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<String> tokens = MediaSearchSqlBuilder.tokenize(normalized);
+        if (tokens.isEmpty()) {
+            return List.of();
+        }
+        MediaSearchSqlBuilder.Built built = MediaSearchSqlBuilder.build(
+                TEXT_SEARCH_SPEC, tokens, SEARCH_PREFILTER_LIMIT, effectiveLimit);
+        jakarta.persistence.Query nq = entityManager.createNativeQuery(built.sql(), Text.class);
+        built.params().forEach(nq::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Text> rows = (List<Text>) nq.getResultList();
+        List<TextResponseDTO> result = rows.stream().map(this::toResponse).toList();
+
+        textAuditService.record(null, TextAuditAction.SEARCH, authentication, request,
+                "Searched texts q=\"" + normalized + "\" tokens=" + tokens
+                        + " limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -132,6 +301,7 @@ public class TextService {
 
         touchUpdateAudit(text, authentication);
         Text saved = textRepository.save(text);
+        readCache.evictAll();
         textAuditService.record(saved, TextAuditAction.UPDATE, authentication, request, buildUpdateDetails(before, saved));
         return toResponse(saved);
     }
@@ -149,12 +319,13 @@ public class TextService {
         text.setRemovedAt(Instant.now());
         text.setRemovedBy(resolveActorUsername(authentication));
         Text saved = textRepository.save(text);
+        readCache.evictAll();
         textAuditService.record(saved, TextAuditAction.REMOVE, authentication, request, "Removed text record (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code text:delete}) only.
      */
     public void delete(String textCode,
                        Authentication authentication,
@@ -170,6 +341,7 @@ public class TextService {
         String textFileUrl = text.getTextFileUrl();
         textAuditService.record(text, TextAuditAction.DELETE, authentication, request, "Permanently deleted text record");
         textRepository.delete(text);
+        readCache.evictAll();
         deleteStoredFile(textFileUrl);
     }
 
@@ -235,7 +407,7 @@ public class TextService {
         if (dto.getTextVersion() != null) text.setTextVersion(dto.getTextVersion().toUpperCase(Locale.ROOT));
     }
 
-    private TextResponseDTO toResponse(Text text) {
+    TextResponseDTO toResponse(Text text) {
         if (text == null) {
             return null;
         }
@@ -471,11 +643,11 @@ public class TextService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("text:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete text records");
         }
     }
 
@@ -490,5 +662,10 @@ public class TextService {
 
     private List<String> copyList(List<String> list) {
         return list == null ? null : new ArrayList<>(list);
+    }
+
+    /** Escape SQL LIKE wildcards in user input. See ImageService for details. */
+    private static String escapeLikeWildcards(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

@@ -10,8 +10,11 @@ import ak.dev.khi_archive_platform.platform.exceptions.CategoryNotFoundException
 import ak.dev.khi_archive_platform.platform.model.category.Category;
 import ak.dev.khi_archive_platform.platform.repo.category.CategoryRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -30,6 +33,7 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
     private final ProjectRepository projectRepository;
     private final CategoryAuditService auditService;
+    private final CategoryReadCache readCache;
 
     public CategoryResponseDTO create(CategoryCreateRequestDTO dto,
                                       Authentication authentication,
@@ -49,18 +53,107 @@ public class CategoryService {
 
         touchCreateAudit(category, authentication);
         Category saved = categoryRepository.save(category);
+        readCache.evictAll();
         auditService.record(saved, CategoryAuditAction.CREATE, authentication, request,
                 "Created category with code=" + saved.getCategoryCode());
-        return toResponse(saved);
+        return CategoryMapper.toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skippedDuplicates, long elapsedMs) {}
+
+    /**
+     * Bulk-insert categories in a single transaction with one cache eviction at the end.
+     * Skips rows whose code already exists; one audit row records the batch summary.
+     */
+    public BulkCreateResult createAll(List<CategoryCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        List<Category> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (CategoryCreateRequestDTO dto : dtos) {
+            String code = CategoryCodeHelper.normalizeAndValidate(dto.getCategoryCode());
+            if (categoryRepository.existsByCategoryCodeAndRemovedAtIsNull(code)) {
+                skipped++;
+                continue;
+            }
+            Category category = Category.builder()
+                    .categoryCode(code)
+                    .name(dto.getName())
+                    .description(dto.getDescription())
+                    .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .createdBy(actor)
+                    .updatedBy(actor)
+                    .build();
+            toInsert.add(category);
+        }
+
+        categoryRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        auditService.record(null, CategoryAuditAction.CREATE, authentication, request,
+                "Bulk created categories: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skippedDuplicates=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /**
+     * Fast path: served from Redis on cache hit; on miss, single JOIN FETCH query
+     * loads categories + keywords without N+1, maps to DTOs, caches for 10 min.
+     * Audit is always recorded (cache only fronts the read, not the audit).
+     */
     @Transactional(readOnly = true)
-    public List<CategoryResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<CategoryResponseDTO> result = categoryRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
+    public Page<CategoryResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<CategoryResponseDTO> all = readCache.getAllActive();
+        Page<CategoryResponseDTO> page = PaginationSupport.sliceList(all, pageable);
         auditService.record(null, CategoryAuditAction.LIST, authentication, request,
-                "Listed active categories");
+                "Listed active categories (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final double SEARCH_SIMILARITY_THRESHOLD = 0.3;
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+
+    /**
+     * Typo-tolerant fuzzy search across name, description, code, and keywords.
+     * Uses pg_trgm trigram similarity (GIN-indexed) — language-agnostic, fast.
+     */
+    @Transactional(readOnly = true)
+    public List<CategoryResponseDTO> search(String query,
+                                            Integer limit,
+                                            Authentication authentication,
+                                            HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<CategoryResponseDTO> result = categoryRepository
+                .searchByText(normalized, SEARCH_SIMILARITY_THRESHOLD, effectiveLimit)
+                .stream()
+                .map(CategoryMapper::toResponse)
+                .toList();
+
+        auditService.record(null, CategoryAuditAction.SEARCH, authentication, request,
+                "Searched categories q=\"" + normalized + "\" limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -73,7 +166,7 @@ public class CategoryService {
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
         auditService.record(category, CategoryAuditAction.READ, authentication, request,
                 "Read category");
-        return toResponse(category);
+        return CategoryMapper.toResponse(category);
     }
 
     public CategoryResponseDTO update(String categoryCode,
@@ -100,9 +193,10 @@ public class CategoryService {
 
         touchUpdateAudit(category, authentication);
         Category saved = categoryRepository.save(category);
+        readCache.evictAll();
         auditService.record(saved, CategoryAuditAction.UPDATE, authentication, request,
                 changes.isEmpty() ? "Updated category (no field changes detected)" : "Updated category: " + trimTrailingSeparator(changes.toString()));
-        return toResponse(saved);
+        return CategoryMapper.toResponse(saved);
     }
 
     /**
@@ -122,13 +216,14 @@ public class CategoryService {
         category.setRemovedAt(Instant.now());
         category.setRemovedBy(resolveActorUsername(authentication));
         Category saved = categoryRepository.save(category);
+        readCache.evictAll();
         auditService.record(saved, CategoryAuditAction.REMOVE, authentication, request,
                 "Removed category (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code category:delete}) only.
      */
     public void delete(String categoryCode,
                        Authentication authentication,
@@ -148,22 +243,7 @@ public class CategoryService {
         auditService.record(category, CategoryAuditAction.DELETE, authentication, request,
                 "Permanently deleted category");
         categoryRepository.delete(category);
-    }
-
-    private CategoryResponseDTO toResponse(Category category) {
-        return CategoryResponseDTO.builder()
-                .id(category.getId())
-                .categoryCode(category.getCategoryCode())
-                .name(category.getName())
-                .description(category.getDescription())
-                .keywords(category.getKeywords() != null ? new ArrayList<>(category.getKeywords()) : null)
-                .createdAt(category.getCreatedAt())
-                .updatedAt(category.getUpdatedAt())
-                .removedAt(category.getRemovedAt())
-                .createdBy(category.getCreatedBy())
-                .updatedBy(category.getUpdatedBy())
-                .removedBy(category.getRemovedBy())
-                .build();
+        readCache.evictAll();
     }
 
     private void touchCreateAudit(Category category, Authentication authentication) {
@@ -188,11 +268,11 @@ public class CategoryService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("category:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete category records");
         }
     }
 

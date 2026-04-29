@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
 
@@ -13,7 +15,11 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @SuppressWarnings("unused")
-public class ImageResponseDTO {
+public class ImageResponseDTO implements Serializable {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
+
     private Long id;
     private String imageCode;
     private Long projectId;

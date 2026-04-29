@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.video;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoBaseRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.video.VideoBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoUpdateRequestDTO;
@@ -14,9 +15,15 @@ import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.video.Video;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
+import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -26,8 +33,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -46,6 +55,40 @@ public class VideoService {
     private final ProjectRepository projectRepository;
     private final VideoAuditService videoAuditService;
     private final S3Service s3Service;
+    private final VideoReadCache readCache;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    private static final MediaSearchSqlBuilder.Spec VIDEO_SEARCH_SPEC = new MediaSearchSqlBuilder.Spec(
+            "videos",
+            "id",
+            List.of(
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "video_code", "file_name",
+                    "creator_artist_director", "producer", "person_shown_in_video",
+                    "event", "location"
+            ),
+            List.of(
+                    "video_code", "file_name", "volume_name", "directory", "path_in_external_volume", "auto_path",
+                    "original_title", "alternative_title", "title_in_central_kurdish", "romanized_title",
+                    "event", "location", "description",
+                    "person_shown_in_video", "video_version", "resolution", "video_codec", "audio_codec", "audio_channels",
+                    "language", "dialect", "subtitle",
+                    "creator_artist_director", "producer", "contributor", "audience",
+                    "accrual_method", "provenance", "video_status", "archive_cataloging",
+                    "physical_label", "location_in_archive_room", "lcc_classification", "note",
+                    "copyright", "right_owner", "license_type", "usage_rights", "availability", "owner", "publisher"
+            ),
+            List.of(
+                    new MediaSearchSqlBuilder.ChildTable("video_subjects", "video_id", "subject"),
+                    new MediaSearchSqlBuilder.ChildTable("video_genres",   "video_id", "genre"),
+                    new MediaSearchSqlBuilder.ChildTable("video_colors",   "video_id", "color"),
+                    new MediaSearchSqlBuilder.ChildTable("video_usages",   "video_id", "usage_context"),
+                    new MediaSearchSqlBuilder.ChildTable("video_tags",     "video_id", "tag"),
+                    new MediaSearchSqlBuilder.ChildTable("video_keywords", "video_id", "keyword")
+            )
+    );
 
     public VideoResponseDTO create(VideoCreateRequestDTO dto,
                                    MultipartFile videoFile,
@@ -82,16 +125,145 @@ public class VideoService {
         touchCreateAudit(video, authentication);
 
         Video saved = videoRepository.save(video);
+        readCache.evictAll();
         videoAuditService.record(saved, VideoAuditAction.CREATE, authentication, request, buildCreateDetails(saved));
         return toResponse(saved);
     }
 
+    public record BulkCreateResult(int requested, int inserted, int skipped, long elapsedMs) {}
+
+    /**
+     * Bulk-create video records from a JSON array. Each entry carries its own
+     * {@code videoFileUrl} (no multipart upload). Video codes are auto-generated
+     * using an in-memory per-project counter. Rows that fail validation or
+     * whose generated code already exists are skipped. One audit summary.
+     */
+    public BulkCreateResult createAll(List<VideoBulkCreateRequestDTO> dtos,
+                                      Authentication authentication,
+                                      HttpServletRequest request) {
+        if (dtos == null || dtos.isEmpty()) {
+            return new BulkCreateResult(0, 0, 0, 0);
+        }
+        long start = System.currentTimeMillis();
+        Instant now = Instant.now();
+        String actor = resolveActorUsername(authentication);
+
+        Map<String, Project> projectByCode = new HashMap<>();
+        Map<Long, Long> nextSeqByProject = new HashMap<>();
+
+        List<Video> toInsert = new ArrayList<>(dtos.size());
+        int skipped = 0;
+        for (VideoBulkCreateRequestDTO dto : dtos) {
+            if (dto == null || dto.getProjectCode() == null || dto.getProjectCode().isBlank()
+                    || dto.getVideoVersion() == null
+                    || dto.getVersionNumber() == null || dto.getVersionNumber() < 1
+                    || dto.getCopyNumber() == null || dto.getCopyNumber() < 1) {
+                skipped++;
+                continue;
+            }
+            String version = dto.getVideoVersion().toUpperCase(Locale.ROOT);
+            if (!VALID_VERSIONS.contains(version)) {
+                skipped++;
+                continue;
+            }
+
+            Project project;
+            try {
+                project = projectByCode.computeIfAbsent(dto.getProjectCode().trim(), this::resolveProject);
+            } catch (Exception e) {
+                skipped++;
+                continue;
+            }
+
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
+                    pid -> videoRepository.countByProject(project) + 1L);
+            String parentCode = project.getPerson() != null
+                    ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+            String videoCode = parentCode
+                    + "_VID_" + version
+                    + "_V" + dto.getVersionNumber()
+                    + "_Copy(" + dto.getCopyNumber() + ")"
+                    + "_" + String.format(Locale.ROOT, "%06d", seq);
+            nextSeqByProject.put(project.getId(), seq + 1);
+
+            if (videoRepository.existsByVideoCode(videoCode)) {
+                skipped++;
+                continue;
+            }
+
+            Video video = new Video();
+            video.setVideoCode(videoCode);
+            video.setProject(project);
+            applyDto(video, dto);
+            video.setVideoFileUrl(dto.getVideoFileUrl());
+            video.setCreatedAt(now);
+            video.setUpdatedAt(now);
+            video.setCreatedBy(actor);
+            video.setUpdatedBy(actor);
+            toInsert.add(video);
+        }
+
+        videoRepository.saveAll(toInsert);
+        readCache.evictAll();
+
+        long elapsed = System.currentTimeMillis() - start;
+        videoAuditService.record(null, VideoAuditAction.CREATE, authentication, request,
+                "Bulk created videos: requested=" + dtos.size()
+                        + " inserted=" + toInsert.size()
+                        + " skipped=" + skipped
+                        + " elapsedMs=" + elapsed);
+        return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
+    }
+
+    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
     @Transactional(readOnly = true)
-    public List<VideoResponseDTO> getAll(Authentication authentication, HttpServletRequest request) {
-        List<VideoResponseDTO> result = videoRepository.findAllByRemovedAtIsNull().stream()
-                .map(this::toResponse)
-                .toList();
-        videoAuditService.record(null, VideoAuditAction.LIST, authentication, request, "Listed active video records");
+    public Page<VideoResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+        List<VideoResponseDTO> all = readCache.getAllActive();
+        Page<VideoResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        videoAuditService.record(null, VideoAuditAction.LIST, authentication, request,
+                "Listed active video records (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
+    }
+
+    private static final int SEARCH_DEFAULT_LIMIT = 20;
+    private static final int SEARCH_MAX_LIMIT = 100;
+    private static final int SEARCH_PREFILTER_LIMIT = 2000;
+
+    /**
+     * Multi-token AND search. See ImageService.search for the full algorithm.
+     */
+    @Transactional(readOnly = true)
+    public List<VideoResponseDTO> search(String query,
+                                         Integer limit,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        String normalized = query.trim();
+        int effectiveLimit = (limit == null || limit <= 0)
+                ? SEARCH_DEFAULT_LIMIT
+                : Math.min(limit, SEARCH_MAX_LIMIT);
+
+        List<String> tokens = MediaSearchSqlBuilder.tokenize(normalized);
+        if (tokens.isEmpty()) {
+            return List.of();
+        }
+        MediaSearchSqlBuilder.Built built = MediaSearchSqlBuilder.build(
+                VIDEO_SEARCH_SPEC, tokens, SEARCH_PREFILTER_LIMIT, effectiveLimit);
+        jakarta.persistence.Query nq = entityManager.createNativeQuery(built.sql(), Video.class);
+        built.params().forEach(nq::setParameter);
+        @SuppressWarnings("unchecked")
+        List<Video> rows = (List<Video>) nq.getResultList();
+        List<VideoResponseDTO> result = rows.stream().map(this::toResponse).toList();
+
+        videoAuditService.record(null, VideoAuditAction.SEARCH, authentication, request,
+                "Searched videos q=\"" + normalized + "\" tokens=" + tokens
+                        + " limit=" + effectiveLimit + " hits=" + result.size());
         return result;
     }
 
@@ -132,6 +304,7 @@ public class VideoService {
 
         touchUpdateAudit(video, authentication);
         Video saved = videoRepository.save(video);
+        readCache.evictAll();
         videoAuditService.record(saved, VideoAuditAction.UPDATE, authentication, request, buildUpdateDetails(before, saved));
         return toResponse(saved);
     }
@@ -149,12 +322,13 @@ public class VideoService {
         video.setRemovedAt(Instant.now());
         video.setRemovedBy(resolveActorUsername(authentication));
         Video saved = videoRepository.save(video);
+        readCache.evictAll();
         videoAuditService.record(saved, VideoAuditAction.REMOVE, authentication, request, "Removed video record (soft delete)");
     }
 
     /**
      * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN and SUPER_ADMIN roles only.
+     * Restricted to ADMIN role (authority {@code video:delete}) only.
      */
     public void delete(String videoCode,
                        Authentication authentication,
@@ -170,6 +344,7 @@ public class VideoService {
         String videoFileUrl = video.getVideoFileUrl();
         videoAuditService.record(video, VideoAuditAction.DELETE, authentication, request, "Permanently deleted video record");
         videoRepository.delete(video);
+        readCache.evictAll();
         deleteStoredFile(videoFileUrl);
     }
 
@@ -235,7 +410,7 @@ public class VideoService {
         if (dto.getVideoVersion() != null) video.setVideoVersion(dto.getVideoVersion().toUpperCase(Locale.ROOT));
     }
 
-    private VideoResponseDTO toResponse(Video video) {
+    VideoResponseDTO toResponse(Video video) {
         if (video == null) {
             return null;
         }
@@ -478,11 +653,11 @@ public class VideoService {
         if (authentication == null) {
             throw new AccessDeniedException("Authentication is required for this operation");
         }
-        boolean isAdmin = authentication.getAuthorities().stream()
+        boolean canHardDelete = authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> "ROLE_ADMIN".equals(a) || "ROLE_SUPER_ADMIN".equals(a));
-        if (!isAdmin) {
-            throw new AccessDeniedException("Only ADMIN or SUPER_ADMIN can permanently delete records");
+                .anyMatch("video:delete"::equals);
+        if (!canHardDelete) {
+            throw new AccessDeniedException("Only ADMIN can permanently delete video records");
         }
     }
 
@@ -497,5 +672,10 @@ public class VideoService {
 
     private List<String> copyList(List<String> list) {
         return list == null ? null : new ArrayList<>(list);
+    }
+
+    /** Escape SQL LIKE wildcards in user input. See ImageService for details. */
+    private static String escapeLikeWildcards(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }

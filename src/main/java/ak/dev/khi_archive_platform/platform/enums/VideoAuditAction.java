@@ -4,6 +4,7 @@ public enum VideoAuditAction {
     CREATE,
     READ,
     LIST,
+    SEARCH,
     UPDATE,
     REMOVE,
     DELETE

@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.platform.api.video;
 
+import ak.dev.khi_archive_platform.platform.dto.video.VideoBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoUpdateRequestDTO;
@@ -10,8 +11,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,11 +35,33 @@ public class VideoAPI {
     private final Validator validator;
 
     @GetMapping
-    public ResponseEntity<List<VideoResponseDTO>> getAll(Authentication auth, HttpServletRequest request) {
-        return ResponseEntity.ok(videoService.getAll(auth, request));
+    @PreAuthorize("hasAuthority('video:read')")
+    public ResponseEntity<Page<VideoResponseDTO>> getAll(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.getAll(pageable, auth, request));
+    }
+
+    /**
+     * Two-phase fuzzy search across Video fields and child collections
+     * (subjects, genres, colors, usages, tags, keywords). Backed by pg_trgm
+     * GIN indexes — typo-tolerant, multilingual, sub-second on large tables.
+     */
+    @GetMapping("/search")
+    @PreAuthorize("hasAuthority('video:read')")
+    public ResponseEntity<List<VideoResponseDTO>> search(
+            @RequestParam("q") String q,
+            @RequestParam(value = "limit", required = false) Integer limit,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.search(q, limit, auth, request));
     }
 
     @GetMapping("/{videoCode}")
+    @PreAuthorize("hasAuthority('video:read')")
     public ResponseEntity<VideoResponseDTO> getByVideoCode(
             @PathVariable String videoCode,
             Authentication auth,
@@ -44,6 +71,7 @@ public class VideoAPI {
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('video:create')")
     public ResponseEntity<VideoResponseDTO> create(
             @RequestPart("data") String dataJson,
             @RequestPart("file") MultipartFile videoFile,
@@ -54,7 +82,23 @@ public class VideoAPI {
         return ResponseEntity.ok(videoService.create(dto, videoFile, auth, request));
     }
 
+    /**
+     * Bulk-create video records. Accepts a JSON array; each entry carries its
+     * own pre-uploaded {@code videoFileUrl} (no multipart). Video codes are
+     * auto-generated. One transaction, one audit summary.
+     */
+    @PostMapping(value = "/bulk", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('video:create')")
+    public ResponseEntity<VideoService.BulkCreateResult> createAll(
+            @RequestBody List<VideoBulkCreateRequestDTO> dtos,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.createAll(dtos, auth, request));
+    }
+
     @PatchMapping(value = "/{videoCode}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('video:update')")
     public ResponseEntity<VideoResponseDTO> update(
             @PathVariable String videoCode,
             @RequestPart("data") String dataJson,
@@ -70,6 +114,7 @@ public class VideoAPI {
      * Soft remove — marks the video as removed but keeps data in the database.
      */
     @PatchMapping("/{videoCode}/remove")
+    @PreAuthorize("hasAuthority('video:remove')")
     public ResponseEntity<Void> remove(
             @PathVariable String videoCode,
             Authentication auth,
@@ -81,9 +126,10 @@ public class VideoAPI {
 
     /**
      * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN and SUPER_ADMIN only.
+     * Restricted to ADMIN only.
      */
     @DeleteMapping("/{videoCode}")
+    @PreAuthorize("hasAuthority('video:delete')")
     public ResponseEntity<Void> delete(
             @PathVariable String videoCode,
             Authentication auth,
