@@ -15,6 +15,7 @@ import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.text.Text;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.text.TextRepository;
+import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.persistence.EntityManager;
@@ -56,6 +57,7 @@ public class TextService {
     private final TextAuditService textAuditService;
     private final S3Service s3Service;
     private final TextReadCache readCache;
+    private final CodeGenLock codeGenLock;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -108,6 +110,9 @@ public class TextService {
             throw new TextValidationException("Copy number is required and must be at least 1");
         }
 
+        // Serialise concurrent creates for the same project so the
+        // count-based sequence number can't collide.
+        codeGenLock.lock("text-code:" + project.getId());
         String textCode = generateTextCode(project, textVersion, versionNumber, copyNumber);
 
         if (textRepository.existsByTextCode(textCode)) {
@@ -172,8 +177,10 @@ public class TextService {
                 continue;
             }
 
-            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
-                    pid -> textRepository.countByProject(project) + 1L);
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(), pid -> {
+                codeGenLock.lock("text-code:" + pid);
+                return textRepository.countByProject(project) + 1L;
+            });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
                     : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
@@ -307,9 +314,10 @@ public class TextService {
     }
 
     /**
-     * Soft remove — marks the text as removed but keeps data in the database.
+     * Soft delete (trash). The S3 file is preserved so the record can be
+     * restored later. Admin-only via {@code text:delete} authority.
      */
-    public void remove(String textCode,
+    public void delete(String textCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalized = normalizeRequiredCode(textCode, "Text code");
@@ -320,29 +328,84 @@ public class TextService {
         text.setRemovedBy(resolveActorUsername(authentication));
         Text saved = textRepository.save(text);
         readCache.evictAll();
-        textAuditService.record(saved, TextAuditAction.REMOVE, authentication, request, "Removed text record (soft delete)");
+        textAuditService.record(saved, TextAuditAction.DELETE, authentication, request,
+                "Sent text record to trash");
     }
 
     /**
-     * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN role (authority {@code text:delete}) only.
+     * Restore a text record from trash. Admin-only. Fails if the parent
+     * project is itself in trash — restore the project first.
      */
-    public void delete(String textCode,
-                       Authentication authentication,
-                       HttpServletRequest request) {
+    public TextResponseDTO restore(String textCode,
+                                   Authentication authentication,
+                                   HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalized = normalizeRequiredCode(textCode, "Text code");
-        Text text = textRepository.findByTextCodeAndRemovedAtIsNull(normalized)
-                .or(() -> textRepository.findAll().stream()
-                        .filter(t -> t.getTextCode().equals(normalized))
-                        .findFirst())
+        Text text = textRepository.findByTextCode(normalized)
                 .orElseThrow(() -> new TextNotFoundException("Text not found: " + textCode));
 
-        String textFileUrl = text.getTextFileUrl();
-        textAuditService.record(text, TextAuditAction.DELETE, authentication, request, "Permanently deleted text record");
+        if (text.getRemovedAt() == null) {
+            throw new TextValidationException("Text is not in trash: " + textCode);
+        }
+        if (text.getProject() != null && text.getProject().getRemovedAt() != null) {
+            throw new TextValidationException(
+                    "Cannot restore text while its project is in trash. Restore the project first.");
+        }
+
+        text.setRemovedAt(null);
+        text.setRemovedBy(null);
+        text.setUpdatedAt(Instant.now());
+        text.setUpdatedBy(resolveActorUsername(authentication));
+        Text saved = textRepository.save(text);
+        readCache.evictAll();
+        textAuditService.record(saved, TextAuditAction.RESTORE, authentication, request,
+                "Restored text record from trash");
+        return toResponse(saved);
+    }
+
+    /**
+     * Permanently delete a text record from the trash. Admin-only. The record
+     * must already be in trash. Removes both the database row and the S3 file.
+     */
+    public void purge(String textCode,
+                      Authentication authentication,
+                      HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalized = normalizeRequiredCode(textCode, "Text code");
+        Text text = textRepository.findByTextCode(normalized)
+                .orElseThrow(() -> new TextNotFoundException("Text not found: " + textCode));
+
+        if (text.getRemovedAt() == null) {
+            throw new TextValidationException(
+                    "Text must be in trash before permanent deletion. Trash it first.");
+        }
+
+        String fileUrl = text.getTextFileUrl();
+        textAuditService.record(text, TextAuditAction.PURGE, authentication, request,
+                "Permanently deleted text record from trash");
         textRepository.delete(text);
         readCache.evictAll();
-        deleteStoredFile(textFileUrl);
+        deleteStoredFile(fileUrl);
+    }
+
+    /**
+     * List text records in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<TextResponseDTO> getTrash(Pageable pageable,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<TextResponseDTO> all = textRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(this::toResponse)
+                .toList();
+        Page<TextResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        textAuditService.record(null, TextAuditAction.LIST, authentication, request,
+                "Listed text trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     // ─── Validation ──────────────────────────────────────────────────────────────

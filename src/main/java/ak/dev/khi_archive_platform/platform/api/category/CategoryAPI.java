@@ -95,22 +95,8 @@ public class CategoryAPI {
     }
 
     /**
-     * Soft remove — marks the category as removed but keeps data in the database.
-     */
-    @PatchMapping("/{categoryCode}/remove")
-    @PreAuthorize("hasAuthority('category:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String categoryCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        categoryService.remove(categoryCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the category to the trash. Admin-only.
+     * Blocked if any active project still references the category.
      */
     @DeleteMapping("/{categoryCode}")
     @PreAuthorize("hasAuthority('category:delete')")
@@ -120,6 +106,47 @@ public class CategoryAPI {
             HttpServletRequest request
     ) {
         categoryService.delete(categoryCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Restore a category from trash. Admin-only.
+     */
+    @PostMapping("/{categoryCode}/restore")
+    @PreAuthorize("hasAuthority('category:delete')")
+    public ResponseEntity<CategoryResponseDTO> restore(
+            @PathVariable String categoryCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(categoryService.restore(categoryCode, auth, request));
+    }
+
+    /**
+     * List trashed categories. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('category:delete')")
+    public ResponseEntity<Page<CategoryResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(categoryService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete a category from trash. Admin-only. The category must
+     * already be in trash, and no project (active or trashed) may reference it.
+     */
+    @DeleteMapping("/{categoryCode}/purge")
+    @PreAuthorize("hasAuthority('category:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String categoryCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        categoryService.purge(categoryCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 }

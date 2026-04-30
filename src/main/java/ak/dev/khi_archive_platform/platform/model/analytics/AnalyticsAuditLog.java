@@ -1,6 +1,6 @@
-package ak.dev.khi_archive_platform.platform.model.category;
+package ak.dev.khi_archive_platform.platform.model.analytics;
 
-import ak.dev.khi_archive_platform.platform.enums.CategoryAuditAction;
+import ak.dev.khi_archive_platform.platform.enums.AnalyticsAuditAction;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,30 +9,30 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
+/**
+ * Records each analytics-console view. Mirrors the column shape of the seven
+ * entity-level *_audit_logs tables so it can be rolled up alongside them in
+ * future cross-cutting reports if needed.
+ */
 @Entity
-@Table(name = "category_audit_logs")
+@Table(name = "analytics_audit_logs")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CategoryAuditLog {
+public class AnalyticsAuditLog {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "category_id")
-    private Long categoryId;
-
-    @Column(name = "category_code", length = 120)
-    private String categoryCode;
-
-    @Column(name = "category_name")
-    private String categoryName;
-
     @Enumerated(EnumType.STRING)
-    @Column(name = "action", nullable = false, length = 20)
-    private CategoryAuditAction action;
+    @Column(name = "action", nullable = false, length = 32)
+    private AnalyticsAuditAction action;
+
+    /** The query that was executed, serialised as a stable cache-key form. */
+    @Column(name = "filter_summary", columnDefinition = "TEXT")
+    private String filterSummary;
 
     @Column(name = "actor_user_id")
     private Long actorUserId;
@@ -79,4 +79,3 @@ public class CategoryAuditLog {
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 }
-

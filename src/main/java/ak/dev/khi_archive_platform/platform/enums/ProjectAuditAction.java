@@ -6,5 +6,7 @@ public enum ProjectAuditAction {
     LIST,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }

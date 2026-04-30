@@ -7,6 +7,8 @@ public enum PersonAuditAction {
     SEARCH,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }
 

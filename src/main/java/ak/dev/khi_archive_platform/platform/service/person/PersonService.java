@@ -9,9 +9,11 @@ import ak.dev.khi_archive_platform.platform.enums.PersonAuditAction;
 import ak.dev.khi_archive_platform.platform.exceptions.PersonAlreadyExistsException;
 import ak.dev.khi_archive_platform.platform.exceptions.PersonNotFoundException;
 import ak.dev.khi_archive_platform.platform.model.person.Person;
+import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.person.PersonRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import ak.dev.khi_archive_platform.platform.service.project.ProjectService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -28,6 +30,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -38,6 +41,7 @@ public class PersonService {
 
     private final PersonRepository personRepository;
     private final ProjectRepository projectRepository;
+    private final ProjectService projectService;
     private final PersonAuditService personAuditService;
     private final S3Service s3Service;
     private final PersonReadCache readCache;
@@ -175,51 +179,156 @@ public class PersonService {
     }
 
     /**
-     * Soft remove — marks the person as removed but keeps data in the database.
+     * Cascade-trash result returned from {@link #deletePerson}. Lets the caller
+     * tell the user which project collections went to trash alongside the person.
      */
-    public void removePerson(String personCode,
-                             Authentication authentication,
-                             HttpServletRequest request) {
+    public record DeleteResult(
+            String personCode,
+            int trashedProjectsCount,
+            List<String> trashedProjectCodes
+    ) {}
+
+    /**
+     * Soft delete (trash). Sends the person to trash and cascades to every
+     * active project linked to them (each linked project also cascades to its
+     * audio/video/image/text). The portrait is preserved on S3 so the record
+     * can be restored. Returns a summary so the caller can show the user which
+     * project collections were trashed alongside.
+     */
+    public DeleteResult deletePerson(String personCode,
+                                     Authentication authentication,
+                                     HttpServletRequest request) {
         String normalizedPersonCode = normalizePersonCode(personCode);
         Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
                 .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
 
-        if (projectRepository.existsByPersonAndRemovedAtIsNull(person)) {
-            throw new IllegalStateException("Person has active projects and cannot be removed. Remove the projects first.");
+        List<Project> activeProjects = projectRepository.findAllByPersonAndRemovedAtIsNull(person);
+        List<String> trashedProjectCodes = new ArrayList<>(activeProjects.size());
+        for (Project linked : activeProjects) {
+            // ProjectService.delete cascades media + emits its own audit row + evicts caches.
+            projectService.delete(linked.getProjectCode(), authentication, request);
+            trashedProjectCodes.add(linked.getProjectCode());
         }
 
         person.setRemovedAt(Instant.now());
         person.setRemovedBy(resolveActorUsername(authentication));
         Person saved = personRepository.save(person);
         readCache.evictAll();
-        personAuditService.record(saved, PersonAuditAction.REMOVE, authentication, request,
-                "Removed person record (soft delete)");
+
+        String details = trashedProjectCodes.isEmpty()
+                ? "Sent person record to trash (no linked projects)"
+                : "Sent person record to trash; cascaded " + trashedProjectCodes.size()
+                        + " project collection(s) to trash: " + trashedProjectCodes;
+        personAuditService.record(saved, PersonAuditAction.DELETE, authentication, request, details);
+
+        return new DeleteResult(saved.getPersonCode(), trashedProjectCodes.size(), trashedProjectCodes);
     }
 
     /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN role (authority {@code person:delete}) only.
+     * Cascade-restore result returned from {@link #restorePerson}. Lets the
+     * caller tell the user which project collections came back alongside.
      */
-    public void deletePerson(String personCode,
-                             Authentication authentication,
-                             HttpServletRequest request) {
+    public record RestoreResult(
+            PersonResponseDTO person,
+            int restoredProjectsCount,
+            List<String> restoredProjectCodes
+    ) {}
+
+    /**
+     * Restore a person from trash. Admin-only. Cascades to every project
+     * currently in trash that links to this person — each restored project
+     * itself cascades-restore to its audio/video/image/text. Mirrors the
+     * delete cascade so a "delete then restore" round-trip is reversible.
+     */
+    public RestoreResult restorePerson(String personCode,
+                                       Authentication authentication,
+                                       HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalizedPersonCode = normalizePersonCode(personCode);
-        Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)
-                .or(() -> personRepository.findAll().stream()
-                        .filter(p -> p.getPersonCode().equals(normalizedPersonCode))
-                        .findFirst())
+        Person person = personRepository.findByPersonCode(normalizedPersonCode)
                 .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
 
-        if (projectRepository.existsByPersonAndRemovedAtIsNull(person)) {
-            throw new IllegalStateException("Person has active projects and cannot be permanently deleted. Remove or delete the projects first.");
+        if (person.getRemovedAt() == null) {
+            throw new PersonNotFoundException("Person is not in trash: " + personCode);
+        }
+        if (personRepository.existsByPersonCodeAndRemovedAtIsNull(normalizedPersonCode)) {
+            throw new PersonAlreadyExistsException("An active person with this code already exists: " + personCode);
+        }
+
+        person.setRemovedAt(null);
+        person.setRemovedBy(null);
+        person.setUpdatedAt(Instant.now());
+        person.setUpdatedBy(resolveActorUsername(authentication));
+        Person saved = personRepository.save(person);
+        readCache.evictAll();
+
+        // Person must be active before we cascade — otherwise ProjectService.restore
+        // would surface a project linked to a still-trashed person.
+        List<Project> trashedProjects = projectRepository.findAllByPersonAndRemovedAtIsNotNull(person);
+        List<String> restoredProjectCodes = new ArrayList<>(trashedProjects.size());
+        for (Project linked : trashedProjects) {
+            // ProjectService.restore cascades media + emits its own audit row + evicts caches.
+            projectService.restore(linked.getProjectCode(), authentication, request);
+            restoredProjectCodes.add(linked.getProjectCode());
+        }
+
+        String details = restoredProjectCodes.isEmpty()
+                ? "Restored person record from trash (no linked projects in trash)"
+                : "Restored person record from trash; cascaded " + restoredProjectCodes.size()
+                        + " project collection(s) from trash: " + restoredProjectCodes;
+        personAuditService.record(saved, PersonAuditAction.RESTORE, authentication, request, details);
+
+        return new RestoreResult(PersonMapper.toResponse(saved), restoredProjectCodes.size(), restoredProjectCodes);
+    }
+
+    /**
+     * Permanently delete a person from the trash. Admin-only. The record must
+     * already be in trash, and no project (active or trashed) may still
+     * reference the person — purge those projects first to keep referential
+     * integrity. Removes the database row and the portrait from S3.
+     */
+    public void purgePerson(String personCode,
+                            Authentication authentication,
+                            HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalizedPersonCode = normalizePersonCode(personCode);
+        Person person = personRepository.findByPersonCode(normalizedPersonCode)
+                .orElseThrow(() -> new PersonNotFoundException("Person not found: " + personCode));
+
+        if (person.getRemovedAt() == null) {
+            throw new IllegalStateException(
+                    "Person must be in trash before permanent deletion. Trash it first.");
+        }
+        if (projectRepository.existsByPerson(person)) {
+            throw new IllegalStateException(
+                    "Person is still referenced by projects (active or trashed). Purge those projects first.");
         }
 
         deletePortrait(person.getMediaPortrait());
-        personAuditService.record(person, PersonAuditAction.DELETE, authentication, request,
-                "Permanently deleted person record");
+        personAuditService.record(person, PersonAuditAction.PURGE, authentication, request,
+                "Permanently deleted person record from trash");
         personRepository.delete(person);
         readCache.evictAll();
+    }
+
+    /**
+     * List persons in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<PersonResponseDTO> getTrash(Pageable pageable,
+                                            Authentication authentication,
+                                            HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<PersonResponseDTO> all = personRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(PersonMapper::toResponse)
+                .toList();
+        Page<PersonResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        personAuditService.record(null, PersonAuditAction.LIST, authentication, request,
+                "Listed person trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     // ─── Field Helpers ───────────────────────────────────────────────────────────

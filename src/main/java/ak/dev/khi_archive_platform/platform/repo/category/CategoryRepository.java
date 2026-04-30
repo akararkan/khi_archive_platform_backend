@@ -14,6 +14,10 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     List<Category> findAllByRemovedAtIsNull();
 
+    List<Category> findAllByRemovedAtIsNotNull();
+
+    Optional<Category> findByCategoryCode(String categoryCode);
+
     /**
      * Eager-loads keywords in a single query to avoid N+1 selects when listing
      * all active categories. Sorted by name for stable order.

@@ -7,5 +7,7 @@ public enum VideoAuditAction {
     SEARCH,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }

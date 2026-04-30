@@ -200,9 +200,11 @@ public class CategoryService {
     }
 
     /**
-     * Soft remove — marks the category as removed but keeps data in the database.
+     * Soft delete (trash). Blocks if any active project still references this
+     * category — projects must be retargeted or trashed first to avoid dangling
+     * references in the trashable graph.
      */
-    public void remove(String categoryCode,
+    public void delete(String categoryCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
@@ -210,40 +212,93 @@ public class CategoryService {
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
 
         if (projectRepository.existsByCategoryAndRemovedAtIsNull(category)) {
-            throw new CategoryInUseException("Category is used by active projects and cannot be removed");
+            throw new CategoryInUseException("Category is used by active projects and cannot be sent to trash");
         }
 
         category.setRemovedAt(Instant.now());
         category.setRemovedBy(resolveActorUsername(authentication));
         Category saved = categoryRepository.save(category);
         readCache.evictAll();
-        auditService.record(saved, CategoryAuditAction.REMOVE, authentication, request,
-                "Removed category (soft delete)");
+        auditService.record(saved, CategoryAuditAction.DELETE, authentication, request,
+                "Sent category to trash");
     }
 
     /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN role (authority {@code category:delete}) only.
+     * Restore a category from trash. Admin-only.
      */
-    public void delete(String categoryCode,
-                       Authentication authentication,
-                       HttpServletRequest request) {
+    public CategoryResponseDTO restore(String categoryCode,
+                                       Authentication authentication,
+                                       HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
-        Category category = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)
-                .or(() -> categoryRepository.findAll().stream()
-                        .filter(c -> c.getCategoryCode().equals(normalizedCategoryCode))
-                        .findFirst())
+        Category category = categoryRepository.findByCategoryCode(normalizedCategoryCode)
                 .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
 
-        if (projectRepository.existsByCategoryAndRemovedAtIsNull(category)) {
-            throw new CategoryInUseException("Category is used by active projects and cannot be permanently deleted");
+        if (category.getRemovedAt() == null) {
+            throw new CategoryNotFoundException("Category is not in trash: " + categoryCode);
+        }
+        if (categoryRepository.existsByCategoryCodeAndRemovedAtIsNull(normalizedCategoryCode)) {
+            throw new CategoryAlreadyExistsException("An active category with this code already exists: " + categoryCode);
         }
 
-        auditService.record(category, CategoryAuditAction.DELETE, authentication, request,
-                "Permanently deleted category");
+        category.setRemovedAt(null);
+        category.setRemovedBy(null);
+        category.setUpdatedAt(Instant.now());
+        category.setUpdatedBy(resolveActorUsername(authentication));
+        Category saved = categoryRepository.save(category);
+        readCache.evictAll();
+        auditService.record(saved, CategoryAuditAction.RESTORE, authentication, request,
+                "Restored category from trash");
+        return CategoryMapper.toResponse(saved);
+    }
+
+    /**
+     * Permanently delete a category from the trash. Admin-only. The category
+     * must already be in trash, and no project (active or trashed) may still
+     * reference it — purge those projects first to keep the project_categories
+     * join table consistent.
+     */
+    public void purge(String categoryCode,
+                      Authentication authentication,
+                      HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalizedCategoryCode = CategoryCodeHelper.normalizeAndValidate(categoryCode);
+        Category category = categoryRepository.findByCategoryCode(normalizedCategoryCode)
+                .orElseThrow(() -> new CategoryNotFoundException("Category not found: " + categoryCode));
+
+        if (category.getRemovedAt() == null) {
+            throw new CategoryNotFoundException(
+                    "Category must be in trash before permanent deletion. Trash it first.");
+        }
+        if (projectRepository.existsByCategory(category)) {
+            throw new CategoryInUseException(
+                    "Category is still referenced by projects (active or trashed). Purge those projects first.");
+        }
+
+        auditService.record(category, CategoryAuditAction.PURGE, authentication, request,
+                "Permanently deleted category from trash");
         categoryRepository.delete(category);
         readCache.evictAll();
+    }
+
+    /**
+     * List categories in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<CategoryResponseDTO> getTrash(Pageable pageable,
+                                              Authentication authentication,
+                                              HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<CategoryResponseDTO> all = categoryRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(CategoryMapper::toResponse)
+                .toList();
+        Page<CategoryResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        auditService.record(null, CategoryAuditAction.LIST, authentication, request,
+                "Listed category trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     private void touchCreateAudit(Category category, Authentication authentication) {

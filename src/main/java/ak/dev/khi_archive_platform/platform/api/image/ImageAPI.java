@@ -111,22 +111,8 @@ public class ImageAPI {
     }
 
     /**
-     * Soft remove — marks the image as removed but keeps data in the database.
-     */
-    @PatchMapping("/{imageCode}/remove")
-    @PreAuthorize("hasAuthority('image:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String imageCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        imageService.remove(imageCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the image record to the trash. Admin-only.
+     * The S3 file is preserved so the record can be restored later.
      */
     @DeleteMapping("/{imageCode}")
     @PreAuthorize("hasAuthority('image:delete')")
@@ -136,6 +122,47 @@ public class ImageAPI {
             HttpServletRequest request
     ) {
         imageService.delete(imageCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Restore an image record from trash. Admin-only.
+     */
+    @PostMapping("/{imageCode}/restore")
+    @PreAuthorize("hasAuthority('image:delete')")
+    public ResponseEntity<ImageResponseDTO> restore(
+            @PathVariable String imageCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.restore(imageCode, auth, request));
+    }
+
+    /**
+     * List trashed image records. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('image:delete')")
+    public ResponseEntity<Page<ImageResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete an image record from trash, including its S3 file.
+     * Admin-only. The record must already be in trash.
+     */
+    @DeleteMapping("/{imageCode}/purge")
+    @PreAuthorize("hasAuthority('image:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String imageCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        imageService.purge(imageCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 

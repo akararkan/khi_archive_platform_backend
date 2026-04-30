@@ -15,6 +15,7 @@ import ak.dev.khi_archive_platform.platform.model.audio.Audio;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.audio.AudioRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.persistence.EntityManager;
@@ -51,6 +52,7 @@ public class AudioService {
     private final AudioAuditService audioAuditService;
     private final S3Service s3Service;
     private final AudioReadCache readCache;
+    private final CodeGenLock codeGenLock;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -109,6 +111,9 @@ public class AudioService {
             throw new AudioValidationException("Copy number is required and must be at least 1");
         }
 
+        // Serialise concurrent creates for the same project so the
+        // count-based sequence number can't collide.
+        codeGenLock.lock("audio-code:" + project.getId());
         String audioCode = generateAudioCode(project, audioVersion, versionNumber, copyNumber);
 
         if (audioRepository.existsByAudioCode(audioCode)) {
@@ -173,8 +178,10 @@ public class AudioService {
                 continue;
             }
 
-            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
-                    pid -> audioRepository.countByProject(project) + 1L);
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(), pid -> {
+                codeGenLock.lock("audio-code:" + pid);
+                return audioRepository.countByProject(project) + 1L;
+            });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
                     : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
@@ -308,9 +315,10 @@ public class AudioService {
     }
 
     /**
-     * Soft remove — marks the audio as removed but keeps data in the database.
+     * Soft delete (trash). The S3 file is preserved so the record can be
+     * restored later. Admin-only via {@code audio:delete} authority.
      */
-    public void remove(String audioCode,
+    public void delete(String audioCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalized = normalizeRequiredCode(audioCode, "Audio code");
@@ -321,29 +329,84 @@ public class AudioService {
         audio.setRemovedBy(resolveActorUsername(authentication));
         Audio saved = audioRepository.save(audio);
         readCache.evictAll();
-        audioAuditService.record(saved, AudioAuditAction.REMOVE, authentication, request, "Removed audio record (soft delete)");
+        audioAuditService.record(saved, AudioAuditAction.DELETE, authentication, request,
+                "Sent audio record to trash");
     }
 
     /**
-     * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN role (authority {@code audio:delete}) only.
+     * Restore an audio record from trash. Admin-only. Fails if the parent
+     * project is itself in trash — restore the project first.
      */
-    public void delete(String audioCode,
-                       Authentication authentication,
-                       HttpServletRequest request) {
+    public AudioResponseDTO restore(String audioCode,
+                                    Authentication authentication,
+                                    HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalized = normalizeRequiredCode(audioCode, "Audio code");
-        Audio audio = audioRepository.findByAudioCodeAndRemovedAtIsNull(normalized)
-                .or(() -> audioRepository.findAll().stream()
-                        .filter(a -> a.getAudioCode().equals(normalized))
-                        .findFirst())
+        Audio audio = audioRepository.findByAudioCode(normalized)
                 .orElseThrow(() -> new AudioNotFoundException("Audio not found: " + audioCode));
 
-        String audioFileUrl = audio.getAudioFileUrl();
-        audioAuditService.record(audio, AudioAuditAction.DELETE, authentication, request, "Permanently deleted audio record");
+        if (audio.getRemovedAt() == null) {
+            throw new AudioValidationException("Audio is not in trash: " + audioCode);
+        }
+        if (audio.getProject() != null && audio.getProject().getRemovedAt() != null) {
+            throw new AudioValidationException(
+                    "Cannot restore audio while its project is in trash. Restore the project first.");
+        }
+
+        audio.setRemovedAt(null);
+        audio.setRemovedBy(null);
+        audio.setUpdatedAt(Instant.now());
+        audio.setUpdatedBy(resolveActorUsername(authentication));
+        Audio saved = audioRepository.save(audio);
+        readCache.evictAll();
+        audioAuditService.record(saved, AudioAuditAction.RESTORE, authentication, request,
+                "Restored audio record from trash");
+        return toResponse(saved);
+    }
+
+    /**
+     * Permanently delete an audio record from the trash. Admin-only. The record
+     * must already be in trash. Removes both the database row and the S3 file.
+     */
+    public void purge(String audioCode,
+                      Authentication authentication,
+                      HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalized = normalizeRequiredCode(audioCode, "Audio code");
+        Audio audio = audioRepository.findByAudioCode(normalized)
+                .orElseThrow(() -> new AudioNotFoundException("Audio not found: " + audioCode));
+
+        if (audio.getRemovedAt() == null) {
+            throw new AudioValidationException(
+                    "Audio must be in trash before permanent deletion. Trash it first.");
+        }
+
+        String fileUrl = audio.getAudioFileUrl();
+        audioAuditService.record(audio, AudioAuditAction.PURGE, authentication, request,
+                "Permanently deleted audio record from trash");
         audioRepository.delete(audio);
         readCache.evictAll();
-        deleteStoredFile(audioFileUrl);
+        deleteStoredFile(fileUrl);
+    }
+
+    /**
+     * List audio records in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<AudioResponseDTO> getTrash(Pageable pageable,
+                                           Authentication authentication,
+                                           HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<AudioResponseDTO> all = audioRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(this::toResponse)
+                .toList();
+        Page<AudioResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        audioAuditService.record(null, AudioAuditAction.LIST, authentication, request,
+                "Listed audio trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     // ─── Validation ──────────────────────────────────────────────────────────────

@@ -7,6 +7,8 @@ public enum CategoryAuditAction {
     SEARCH,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }
 

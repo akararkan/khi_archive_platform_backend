@@ -111,22 +111,8 @@ public class VideoAPI {
     }
 
     /**
-     * Soft remove — marks the video as removed but keeps data in the database.
-     */
-    @PatchMapping("/{videoCode}/remove")
-    @PreAuthorize("hasAuthority('video:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String videoCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        videoService.remove(videoCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the video record to the trash. Admin-only.
+     * The S3 file is preserved so the record can be restored later.
      */
     @DeleteMapping("/{videoCode}")
     @PreAuthorize("hasAuthority('video:delete')")
@@ -136,6 +122,47 @@ public class VideoAPI {
             HttpServletRequest request
     ) {
         videoService.delete(videoCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Restore a video record from trash. Admin-only.
+     */
+    @PostMapping("/{videoCode}/restore")
+    @PreAuthorize("hasAuthority('video:delete')")
+    public ResponseEntity<VideoResponseDTO> restore(
+            @PathVariable String videoCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.restore(videoCode, auth, request));
+    }
+
+    /**
+     * List trashed video records. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('video:delete')")
+    public ResponseEntity<Page<VideoResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete a video record from trash, including its S3 file.
+     * Admin-only. The record must already be in trash.
+     */
+    @DeleteMapping("/{videoCode}/purge")
+    @PreAuthorize("hasAuthority('video:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String videoCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        videoService.purge(videoCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 

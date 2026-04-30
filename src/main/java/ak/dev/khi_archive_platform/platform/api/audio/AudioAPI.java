@@ -110,22 +110,8 @@ public class AudioAPI {
     }
 
     /**
-     * Soft remove — marks the audio as removed but keeps data in the database.
-     */
-    @PatchMapping("/{audioCode}/remove")
-    @PreAuthorize("hasAuthority('audio:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String audioCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        audioService.remove(audioCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the audio record to the trash. Admin-only.
+     * The S3 file is preserved so the record can be restored later.
      */
     @DeleteMapping("/{audioCode}")
     @PreAuthorize("hasAuthority('audio:delete')")
@@ -135,6 +121,47 @@ public class AudioAPI {
             HttpServletRequest request
     ) {
         audioService.delete(audioCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Restore an audio record from trash. Admin-only.
+     */
+    @PostMapping("/{audioCode}/restore")
+    @PreAuthorize("hasAuthority('audio:delete')")
+    public ResponseEntity<AudioResponseDTO> restore(
+            @PathVariable String audioCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(audioService.restore(audioCode, auth, request));
+    }
+
+    /**
+     * List trashed audio records. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('audio:delete')")
+    public ResponseEntity<Page<AudioResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(audioService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete an audio record from trash, including its S3 file.
+     * Admin-only. The record must already be in trash.
+     */
+    @DeleteMapping("/{audioCode}/purge")
+    @PreAuthorize("hasAuthority('audio:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String audioCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        audioService.purge(audioCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 

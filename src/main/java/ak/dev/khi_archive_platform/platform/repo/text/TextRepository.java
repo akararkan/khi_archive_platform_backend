@@ -3,9 +3,11 @@ package ak.dev.khi_archive_platform.platform.repo.text;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.text.Text;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +20,37 @@ public interface TextRepository extends JpaRepository<Text, Long> {
 
     List<Text> findAllByRemovedAtIsNull();
 
+    List<Text> findAllByRemovedAtIsNotNull();
+
+    Optional<Text> findByTextCode(String textCode);
+
+    /**
+     * Bulk soft-trash every active text belonging to the given project.
+     * Used when a project is moved to trash so its media follow it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Text t SET t.removedAt = :removedAt, t.removedBy = :removedBy, " +
+            "t.version = COALESCE(t.version, 0) + 1 " +
+            "WHERE t.project = :project AND t.removedAt IS NULL")
+    int softTrashByProject(@Param("project") Project project,
+                           @Param("removedAt") Instant removedAt,
+                           @Param("removedBy") String removedBy);
+
+    /**
+     * Bulk-restore every trashed text belonging to the given project.
+     * Used when a project is restored so its media come back with it.
+     * Bumps {@code version} so concurrent edits surface a stale-version error.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Text t SET t.removedAt = NULL, t.removedBy = NULL, " +
+            "t.version = COALESCE(t.version, 0) + 1 " +
+            "WHERE t.project = :project AND t.removedAt IS NOT NULL")
+    int restoreByProject(@Param("project") Project project);
+
     long countByProject(Project project);
+
+    /** Loads every text for a project regardless of trash state — used during purge to collect S3 URLs. */
+    List<Text> findAllByProject(Project project);
 
     long countByProjectAndTextVersionAndVersionNumber(Project project, String textVersion, Integer versionNumber);
 

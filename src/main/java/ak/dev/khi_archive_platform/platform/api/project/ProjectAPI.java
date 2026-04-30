@@ -82,22 +82,8 @@ public class ProjectAPI {
     }
 
     /**
-     * Soft remove — marks the project as removed but keeps data in the database.
-     */
-    @PatchMapping("/{projectCode}/remove")
-    @PreAuthorize("hasAuthority('project:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String projectCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        projectService.remove(projectCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the project (and its media) to the trash. Admin-only.
+     * Categories and the linked person are not affected.
      */
     @DeleteMapping("/{projectCode}")
     @PreAuthorize("hasAuthority('project:delete')")
@@ -107,6 +93,50 @@ public class ProjectAPI {
             HttpServletRequest request
     ) {
         projectService.delete(projectCode, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Restore a project from trash. Admin-only. Cascades to every trashed
+     * media record (audio/video/image/text) belonging to this project — the
+     * response body lists how many of each came back, so the UI can confirm.
+     */
+    @PostMapping("/{projectCode}/restore")
+    @PreAuthorize("hasAuthority('project:delete')")
+    public ResponseEntity<ProjectService.RestoreResult> restore(
+            @PathVariable String projectCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(projectService.restore(projectCode, auth, request));
+    }
+
+    /**
+     * List trashed projects. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('project:delete')")
+    public ResponseEntity<Page<ProjectResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(projectService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete a project (and all its media + S3 files) from trash.
+     * Admin-only. Project must already be in trash. The linked person and
+     * categories are not affected.
+     */
+    @DeleteMapping("/{projectCode}/purge")
+    @PreAuthorize("hasAuthority('project:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String projectCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        projectService.purge(projectCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 }

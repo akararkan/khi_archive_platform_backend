@@ -3,9 +3,11 @@ package ak.dev.khi_archive_platform.platform.repo.image;
 import ak.dev.khi_archive_platform.platform.model.image.Image;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +20,37 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
 
     List<Image> findAllByRemovedAtIsNull();
 
+    List<Image> findAllByRemovedAtIsNotNull();
+
+    Optional<Image> findByImageCode(String imageCode);
+
+    /**
+     * Bulk soft-trash every active image belonging to the given project.
+     * Used when a project is moved to trash so its media follow it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Image i SET i.removedAt = :removedAt, i.removedBy = :removedBy, " +
+            "i.version = COALESCE(i.version, 0) + 1 " +
+            "WHERE i.project = :project AND i.removedAt IS NULL")
+    int softTrashByProject(@Param("project") Project project,
+                           @Param("removedAt") Instant removedAt,
+                           @Param("removedBy") String removedBy);
+
+    /**
+     * Bulk-restore every trashed image belonging to the given project.
+     * Used when a project is restored so its media come back with it.
+     * Bumps {@code version} so concurrent edits surface a stale-version error.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Image i SET i.removedAt = NULL, i.removedBy = NULL, " +
+            "i.version = COALESCE(i.version, 0) + 1 " +
+            "WHERE i.project = :project AND i.removedAt IS NOT NULL")
+    int restoreByProject(@Param("project") Project project);
+
     long countByProject(Project project);
+
+    /** Loads every image for a project regardless of trash state — used during purge to collect S3 URLs. */
+    List<Image> findAllByProject(Project project);
 
     long countByProjectAndImageVersionAndVersionNumber(Project project, String imageVersion, Integer versionNumber);
 

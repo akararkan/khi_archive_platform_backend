@@ -7,5 +7,7 @@ public enum ImageAuditAction {
     SEARCH,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }

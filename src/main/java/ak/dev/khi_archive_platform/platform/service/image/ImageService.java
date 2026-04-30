@@ -15,6 +15,7 @@ import ak.dev.khi_archive_platform.platform.model.image.Image;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.image.ImageRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.persistence.EntityManager;
@@ -56,6 +57,7 @@ public class ImageService {
     private final ImageAuditService imageAuditService;
     private final S3Service s3Service;
     private final ImageReadCache readCache;
+    private final CodeGenLock codeGenLock;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -113,6 +115,9 @@ public class ImageService {
             throw new ImageValidationException("Copy number is required and must be at least 1");
         }
 
+        // Serialise concurrent creates for the same project so the
+        // count-based sequence number can't collide.
+        codeGenLock.lock("image-code:" + project.getId());
         String imageCode = generateImageCode(project, imageVersion, versionNumber, copyNumber);
 
         if (imageRepository.existsByImageCode(imageCode)) {
@@ -178,8 +183,10 @@ public class ImageService {
                 continue;
             }
 
-            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
-                    pid -> imageRepository.countByProject(project) + 1L);
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(), pid -> {
+                codeGenLock.lock("image-code:" + pid);
+                return imageRepository.countByProject(project) + 1L;
+            });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
                     : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
@@ -324,9 +331,10 @@ public class ImageService {
     }
 
     /**
-     * Soft remove — marks the image as removed but keeps data in the database.
+     * Soft delete (trash). The S3 file is preserved so the record can be
+     * restored later. Admin-only via {@code image:delete} authority.
      */
-    public void remove(String imageCode,
+    public void delete(String imageCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalized = normalizeRequiredCode(imageCode, "Image code");
@@ -337,29 +345,84 @@ public class ImageService {
         image.setRemovedBy(resolveActorUsername(authentication));
         Image saved = imageRepository.save(image);
         readCache.evictAll();
-        imageAuditService.record(saved, ImageAuditAction.REMOVE, authentication, request, "Removed image record (soft delete)");
+        imageAuditService.record(saved, ImageAuditAction.DELETE, authentication, request,
+                "Sent image record to trash");
     }
 
     /**
-     * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN role (authority {@code image:delete}) only.
+     * Restore an image record from trash. Admin-only. Fails if the parent
+     * project is itself in trash — restore the project first.
      */
-    public void delete(String imageCode,
-                       Authentication authentication,
-                       HttpServletRequest request) {
+    public ImageResponseDTO restore(String imageCode,
+                                    Authentication authentication,
+                                    HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalized = normalizeRequiredCode(imageCode, "Image code");
-        Image image = imageRepository.findByImageCodeAndRemovedAtIsNull(normalized)
-                .or(() -> imageRepository.findAll().stream()
-                        .filter(i -> i.getImageCode().equals(normalized))
-                        .findFirst())
+        Image image = imageRepository.findByImageCode(normalized)
                 .orElseThrow(() -> new ImageNotFoundException("Image not found: " + imageCode));
 
-        String imageFileUrl = image.getImageFileUrl();
-        imageAuditService.record(image, ImageAuditAction.DELETE, authentication, request, "Permanently deleted image record");
+        if (image.getRemovedAt() == null) {
+            throw new ImageValidationException("Image is not in trash: " + imageCode);
+        }
+        if (image.getProject() != null && image.getProject().getRemovedAt() != null) {
+            throw new ImageValidationException(
+                    "Cannot restore image while its project is in trash. Restore the project first.");
+        }
+
+        image.setRemovedAt(null);
+        image.setRemovedBy(null);
+        image.setUpdatedAt(Instant.now());
+        image.setUpdatedBy(resolveActorUsername(authentication));
+        Image saved = imageRepository.save(image);
+        readCache.evictAll();
+        imageAuditService.record(saved, ImageAuditAction.RESTORE, authentication, request,
+                "Restored image record from trash");
+        return toResponse(saved);
+    }
+
+    /**
+     * Permanently delete an image record from the trash. Admin-only. The record
+     * must already be in trash. Removes both the database row and the S3 file.
+     */
+    public void purge(String imageCode,
+                      Authentication authentication,
+                      HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalized = normalizeRequiredCode(imageCode, "Image code");
+        Image image = imageRepository.findByImageCode(normalized)
+                .orElseThrow(() -> new ImageNotFoundException("Image not found: " + imageCode));
+
+        if (image.getRemovedAt() == null) {
+            throw new ImageValidationException(
+                    "Image must be in trash before permanent deletion. Trash it first.");
+        }
+
+        String fileUrl = image.getImageFileUrl();
+        imageAuditService.record(image, ImageAuditAction.PURGE, authentication, request,
+                "Permanently deleted image record from trash");
         imageRepository.delete(image);
         readCache.evictAll();
-        deleteStoredFile(imageFileUrl);
+        deleteStoredFile(fileUrl);
+    }
+
+    /**
+     * List image records in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<ImageResponseDTO> getTrash(Pageable pageable,
+                                           Authentication authentication,
+                                           HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<ImageResponseDTO> all = imageRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(this::toResponse)
+                .toList();
+        Page<ImageResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        imageAuditService.record(null, ImageAuditAction.LIST, authentication, request,
+                "Listed image trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     // ─── Validation ──────────────────────────────────────────────────────────────

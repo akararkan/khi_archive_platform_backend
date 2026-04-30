@@ -268,11 +268,22 @@ public class Text {
     @Column(name = "removed_by", length = 120)
     private String removedBy;
 
+    /**
+     * Optimistic-locking version. JPA bumps it automatically on every save;
+     * concurrent updates that read a stale version trip
+     * {@code ObjectOptimisticLockingFailureException} → translated to HTTP 409.
+     */
+    @jakarta.persistence.Version
+    @org.hibernate.annotations.ColumnDefault("0")
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
         if (updatedAt == null) updatedAt = now;
+        if (version == null) version = 0L;
     }
 
     @PreUpdate

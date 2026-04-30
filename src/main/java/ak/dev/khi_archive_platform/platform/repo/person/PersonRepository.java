@@ -14,6 +14,10 @@ public interface PersonRepository extends JpaRepository<Person, Long> {
 
     List<Person> findAllByRemovedAtIsNull();
 
+    List<Person> findAllByRemovedAtIsNotNull();
+
+    Optional<Person> findByPersonCode(String personCode);
+
     /**
      * Eager-loads personType in a single query to avoid N+1 selects when listing
      * all active persons. Sorted by full_name for stable order.

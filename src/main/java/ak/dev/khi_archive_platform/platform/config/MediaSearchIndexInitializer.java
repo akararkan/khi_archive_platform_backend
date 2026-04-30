@@ -41,6 +41,33 @@ public class MediaSearchIndexInitializer {
         ensureVideoIndexes();
         ensureAudioIndexes();
         dropStaleAuditCheckConstraints();
+        backfillNullVersions();
+    }
+
+    /**
+     * @Version columns added via Hibernate ddl-auto=update arrive nullable on
+     * existing rows. Optimistic locking treats a NULL version as fresh-insert
+     * semantics, which can mask concurrent edits. Backfill once per startup so
+     * every row has a real version. Idempotent — a no-op once everything is 0.
+     */
+    private void backfillNullVersions() {
+        List<String> tables = List.of(
+                "audios", "videos", "images", "texts",
+                "projects", "person", "categories"
+        );
+        for (String table : tables) {
+            try {
+                int updated = jdbcTemplate.update(
+                        "UPDATE " + table + " SET version = 0 WHERE version IS NULL");
+                if (updated > 0) {
+                    log.info("Backfilled version=0 on {} rows in {}", updated, table);
+                }
+            } catch (Exception e) {
+                // Column may not exist yet on first boot before Hibernate ALTERs the
+                // table; log and continue. Subsequent boots will succeed.
+                log.warn("Skipped version backfill on {}: {}", table, e.getMessage());
+            }
+        }
     }
 
     // ─── Image ───────────────────────────────────────────────────────────────
@@ -289,13 +316,15 @@ public class MediaSearchIndexInitializer {
                 "image_audit_logs_action_check",
                 "text_audit_logs_action_check",
                 "video_audit_logs_action_check",
-                "audio_audit_logs_action_check"
+                "audio_audit_logs_action_check",
+                "project_audit_logs_action_check"
         );
         List<String> tables = List.of(
                 "image_audit_logs",
                 "text_audit_logs",
                 "video_audit_logs",
-                "audio_audit_logs"
+                "audio_audit_logs",
+                "project_audit_logs"
         );
         for (int i = 0; i < tables.size(); i++) {
             try {

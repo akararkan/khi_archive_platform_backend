@@ -3,9 +3,11 @@ package ak.dev.khi_archive_platform.platform.repo.audio;
 import ak.dev.khi_archive_platform.platform.model.audio.Audio;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +20,37 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
 
     List<Audio> findAllByRemovedAtIsNull();
 
+    List<Audio> findAllByRemovedAtIsNotNull();
+
+    Optional<Audio> findByAudioCode(String audioCode);
+
+    /**
+     * Bulk soft-trash every active audio belonging to the given project.
+     * Used when a project is moved to trash so its media follow it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Audio a SET a.removedAt = :removedAt, a.removedBy = :removedBy, " +
+            "a.version = COALESCE(a.version, 0) + 1 " +
+            "WHERE a.project = :project AND a.removedAt IS NULL")
+    int softTrashByProject(@Param("project") Project project,
+                           @Param("removedAt") Instant removedAt,
+                           @Param("removedBy") String removedBy);
+
+    /**
+     * Bulk-restore every trashed audio belonging to the given project.
+     * Used when a project is restored so its media come back with it.
+     * Bumps {@code version} so concurrent edits surface a stale-version error.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Audio a SET a.removedAt = NULL, a.removedBy = NULL, " +
+            "a.version = COALESCE(a.version, 0) + 1 " +
+            "WHERE a.project = :project AND a.removedAt IS NOT NULL")
+    int restoreByProject(@Param("project") Project project);
+
     long countByProject(Project project);
+
+    /** Loads every audio for a project regardless of trash state — used during purge to collect S3 URLs. */
+    List<Audio> findAllByProject(Project project);
 
     long countByProjectAndAudioVersionAndVersionNumber(Project project, String audioVersion, Integer versionNumber);
 

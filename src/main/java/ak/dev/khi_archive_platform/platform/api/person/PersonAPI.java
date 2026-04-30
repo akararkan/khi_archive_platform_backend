@@ -95,31 +95,64 @@ public class PersonAPI {
     }
 
     /**
-     * Soft remove — marks the person as removed but keeps data in the database.
-     */
-    @PatchMapping("/{personCode}/remove")
-    @PreAuthorize("hasAuthority('person:remove')")
-    public ResponseEntity<Void> remove(
-            @PathVariable String personCode,
-            Authentication auth,
-            HttpServletRequest request
-    ) {
-        personService.removePerson(personCode, auth, request);
-        return ResponseEntity.noContent().build();
-    }
-
-    /**
-     * Hard delete — permanently removes the row from the database.
-     * Restricted to ADMIN only.
+     * Soft delete — sends the person record to trash. Admin-only.
+     * Cascades to every active project linked to the person (each linked
+     * project also cascades to its audio/video/image/text). The response body
+     * lists the project codes that were trashed alongside, so the UI can tell
+     * the user exactly what moved to the trash.
      */
     @DeleteMapping("/{personCode}")
     @PreAuthorize("hasAuthority('person:delete')")
-    public ResponseEntity<Void> delete(
+    public ResponseEntity<PersonService.DeleteResult> delete(
             @PathVariable String personCode,
             Authentication auth,
             HttpServletRequest request
     ) {
-        personService.deletePerson(personCode, auth, request);
+        return ResponseEntity.ok(personService.deletePerson(personCode, auth, request));
+    }
+
+    /**
+     * Restore a person record from trash. Admin-only. Cascades to every
+     * trashed project linked to the person (each restored project itself
+     * cascades-restore to its audio/video/image/text). The response body
+     * lists the restored project codes.
+     */
+    @PostMapping("/{personCode}/restore")
+    @PreAuthorize("hasAuthority('person:delete')")
+    public ResponseEntity<PersonService.RestoreResult> restore(
+            @PathVariable String personCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(personService.restorePerson(personCode, auth, request));
+    }
+
+    /**
+     * List trashed person records. Admin-only.
+     */
+    @GetMapping("/trash")
+    @PreAuthorize("hasAuthority('person:delete')")
+    public ResponseEntity<Page<PersonResponseDTO>> getTrash(
+            @PageableDefault(size = 100) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(personService.getTrash(pageable, auth, request));
+    }
+
+    /**
+     * Permanently delete a person from trash, including their portrait file.
+     * Admin-only. The person must already be in trash, and no project (active
+     * or trashed) may still reference them.
+     */
+    @DeleteMapping("/{personCode}/purge")
+    @PreAuthorize("hasAuthority('person:delete')")
+    public ResponseEntity<Void> purge(
+            @PathVariable String personCode,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        personService.purgePerson(personCode, auth, request);
         return ResponseEntity.noContent().build();
     }
 

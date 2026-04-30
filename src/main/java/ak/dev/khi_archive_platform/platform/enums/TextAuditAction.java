@@ -7,5 +7,7 @@ public enum TextAuditAction {
     SEARCH,
     UPDATE,
     REMOVE,
-    DELETE
+    DELETE,
+    RESTORE,
+    PURGE
 }

@@ -3,9 +3,11 @@ package ak.dev.khi_archive_platform.platform.repo.video;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.video.Video;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +20,37 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
 
     List<Video> findAllByRemovedAtIsNull();
 
+    List<Video> findAllByRemovedAtIsNotNull();
+
+    Optional<Video> findByVideoCode(String videoCode);
+
+    /**
+     * Bulk soft-trash every active video belonging to the given project.
+     * Used when a project is moved to trash so its media follow it.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Video v SET v.removedAt = :removedAt, v.removedBy = :removedBy, " +
+            "v.version = COALESCE(v.version, 0) + 1 " +
+            "WHERE v.project = :project AND v.removedAt IS NULL")
+    int softTrashByProject(@Param("project") Project project,
+                           @Param("removedAt") Instant removedAt,
+                           @Param("removedBy") String removedBy);
+
+    /**
+     * Bulk-restore every trashed video belonging to the given project.
+     * Used when a project is restored so its media come back with it.
+     * Bumps {@code version} so concurrent edits surface a stale-version error.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Video v SET v.removedAt = NULL, v.removedBy = NULL, " +
+            "v.version = COALESCE(v.version, 0) + 1 " +
+            "WHERE v.project = :project AND v.removedAt IS NOT NULL")
+    int restoreByProject(@Param("project") Project project);
+
     long countByProject(Project project);
+
+    /** Loads every video for a project regardless of trash state — used during purge to collect S3 URLs. */
+    List<Video> findAllByProject(Project project);
 
     long countByProjectAndVideoVersionAndVersionNumber(Project project, String videoVersion, Integer versionNumber);
 

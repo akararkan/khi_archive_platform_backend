@@ -15,6 +15,7 @@ import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.model.video.Video;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
+import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.persistence.EntityManager;
@@ -56,6 +57,7 @@ public class VideoService {
     private final VideoAuditService videoAuditService;
     private final S3Service s3Service;
     private final VideoReadCache readCache;
+    private final CodeGenLock codeGenLock;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -111,6 +113,9 @@ public class VideoService {
             throw new VideoValidationException("Copy number is required and must be at least 1");
         }
 
+        // Serialise concurrent creates for the same project so the
+        // count-based sequence number can't collide.
+        codeGenLock.lock("video-code:" + project.getId());
         String videoCode = generateVideoCode(project, videoVersion, versionNumber, copyNumber);
 
         if (videoRepository.existsByVideoCode(videoCode)) {
@@ -175,8 +180,10 @@ public class VideoService {
                 continue;
             }
 
-            long seq = nextSeqByProject.computeIfAbsent(project.getId(),
-                    pid -> videoRepository.countByProject(project) + 1L);
+            long seq = nextSeqByProject.computeIfAbsent(project.getId(), pid -> {
+                codeGenLock.lock("video-code:" + pid);
+                return videoRepository.countByProject(project) + 1L;
+            });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
                     : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
@@ -310,9 +317,10 @@ public class VideoService {
     }
 
     /**
-     * Soft remove — marks the video as removed but keeps data in the database.
+     * Soft delete (trash). The S3 file is preserved so the record can be
+     * restored later. Admin-only via {@code video:delete} authority.
      */
-    public void remove(String videoCode,
+    public void delete(String videoCode,
                        Authentication authentication,
                        HttpServletRequest request) {
         String normalized = normalizeRequiredCode(videoCode, "Video code");
@@ -323,29 +331,84 @@ public class VideoService {
         video.setRemovedBy(resolveActorUsername(authentication));
         Video saved = videoRepository.save(video);
         readCache.evictAll();
-        videoAuditService.record(saved, VideoAuditAction.REMOVE, authentication, request, "Removed video record (soft delete)");
+        videoAuditService.record(saved, VideoAuditAction.DELETE, authentication, request,
+                "Sent video record to trash");
     }
 
     /**
-     * Hard delete — permanently removes the row from the database and the file from S3.
-     * Restricted to ADMIN role (authority {@code video:delete}) only.
+     * Restore a video record from trash. Admin-only. Fails if the parent
+     * project is itself in trash — restore the project first.
      */
-    public void delete(String videoCode,
-                       Authentication authentication,
-                       HttpServletRequest request) {
+    public VideoResponseDTO restore(String videoCode,
+                                    Authentication authentication,
+                                    HttpServletRequest request) {
         requireAdminRole(authentication);
         String normalized = normalizeRequiredCode(videoCode, "Video code");
-        Video video = videoRepository.findByVideoCodeAndRemovedAtIsNull(normalized)
-                .or(() -> videoRepository.findAll().stream()
-                        .filter(v -> v.getVideoCode().equals(normalized))
-                        .findFirst())
+        Video video = videoRepository.findByVideoCode(normalized)
                 .orElseThrow(() -> new VideoNotFoundException("Video not found: " + videoCode));
 
-        String videoFileUrl = video.getVideoFileUrl();
-        videoAuditService.record(video, VideoAuditAction.DELETE, authentication, request, "Permanently deleted video record");
+        if (video.getRemovedAt() == null) {
+            throw new VideoValidationException("Video is not in trash: " + videoCode);
+        }
+        if (video.getProject() != null && video.getProject().getRemovedAt() != null) {
+            throw new VideoValidationException(
+                    "Cannot restore video while its project is in trash. Restore the project first.");
+        }
+
+        video.setRemovedAt(null);
+        video.setRemovedBy(null);
+        video.setUpdatedAt(Instant.now());
+        video.setUpdatedBy(resolveActorUsername(authentication));
+        Video saved = videoRepository.save(video);
+        readCache.evictAll();
+        videoAuditService.record(saved, VideoAuditAction.RESTORE, authentication, request,
+                "Restored video record from trash");
+        return toResponse(saved);
+    }
+
+    /**
+     * Permanently delete a video record from the trash. Admin-only. The record
+     * must already be in trash. Removes both the database row and the S3 file.
+     */
+    public void purge(String videoCode,
+                      Authentication authentication,
+                      HttpServletRequest request) {
+        requireAdminRole(authentication);
+        String normalized = normalizeRequiredCode(videoCode, "Video code");
+        Video video = videoRepository.findByVideoCode(normalized)
+                .orElseThrow(() -> new VideoNotFoundException("Video not found: " + videoCode));
+
+        if (video.getRemovedAt() == null) {
+            throw new VideoValidationException(
+                    "Video must be in trash before permanent deletion. Trash it first.");
+        }
+
+        String fileUrl = video.getVideoFileUrl();
+        videoAuditService.record(video, VideoAuditAction.PURGE, authentication, request,
+                "Permanently deleted video record from trash");
         videoRepository.delete(video);
         readCache.evictAll();
-        deleteStoredFile(videoFileUrl);
+        deleteStoredFile(fileUrl);
+    }
+
+    /**
+     * List video records in the trash. Admin-only.
+     */
+    @Transactional(readOnly = true)
+    public Page<VideoResponseDTO> getTrash(Pageable pageable,
+                                           Authentication authentication,
+                                           HttpServletRequest request) {
+        requireAdminRole(authentication);
+        List<VideoResponseDTO> all = videoRepository.findAllByRemovedAtIsNotNull().stream()
+                .map(this::toResponse)
+                .toList();
+        Page<VideoResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        videoAuditService.record(null, VideoAuditAction.LIST, authentication, request,
+                "Listed video trash (page=" + page.getNumber()
+                        + " size=" + page.getSize()
+                        + " returned=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements() + ")");
+        return page;
     }
 
     // ─── Validation ──────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -156,6 +157,24 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleConflict(DataIntegrityViolationException ex,
                                                            HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "CONFLICT", rootMessage(ex), request.getRequestURI(), null);
+    }
+
+    /**
+     * Concurrent edit detected via {@code @Version}. Two users (or two tabs of
+     * the same user) modified the same record at the same time — the second
+     * save sees a stale version. Translate to a 409 with a clear retry hint
+     * instead of leaking the framework exception.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleOptimisticLock(ObjectOptimisticLockingFailureException ex,
+                                                                 HttpServletRequest request) {
+        String entity = ex.getPersistentClassName() != null
+                ? ex.getPersistentClassName().substring(ex.getPersistentClassName().lastIndexOf('.') + 1)
+                : "record";
+        String message = "This " + entity + " was modified by someone else while you were editing it. "
+                + "Reload to see the latest version, then re-apply your changes.";
+        return build(HttpStatus.CONFLICT, "STALE_VERSION", message, request.getRequestURI(), null);
     }
 
     @ExceptionHandler(AudioAlreadyExistsException.class)
