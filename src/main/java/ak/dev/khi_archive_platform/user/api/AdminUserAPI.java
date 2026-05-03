@@ -1,13 +1,20 @@
 package ak.dev.khi_archive_platform.user.api;
 
+import ak.dev.khi_archive_platform.user.dto.UserCreateRequestDTO;
+import ak.dev.khi_archive_platform.user.dto.UserUpdateRequestDTO;
 import ak.dev.khi_archive_platform.user.dto.admin.PermissionsChangeRequestDTO;
 import ak.dev.khi_archive_platform.user.dto.admin.RoleCatalogDTO;
 import ak.dev.khi_archive_platform.user.dto.admin.RoleChangeRequestDTO;
 import ak.dev.khi_archive_platform.user.dto.admin.UserAdminDTO;
+import ak.dev.khi_archive_platform.user.dto.admin.UserAuditLogDTO;
+import ak.dev.khi_archive_platform.user.enums.UserAuditAction;
 import ak.dev.khi_archive_platform.user.service.AdminUserService;
+import ak.dev.khi_archive_platform.user.service.UserAuditLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -18,9 +25,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -44,12 +54,45 @@ import java.util.Set;
 public class AdminUserAPI {
 
     private final AdminUserService adminUserService;
+    private final UserAuditLogService auditLogService;
 
-    /** All users with their role + extra permissions + effective authority set. */
+    /** All users with their role + extra permissions + effective authority set.
+     *  Listing is intentionally not audited — it would drown out genuine
+     *  state-change rows. */
     @GetMapping
     @PreAuthorize("hasAuthority('user:read')")
     public ResponseEntity<List<UserAdminDTO>> list(Authentication auth, HttpServletRequest request) {
         return ResponseEntity.ok(adminUserService.listAll(auth, request));
+    }
+
+    /**
+     * Admin-driven user creation. Body shape mirrors {@code UserCreateRequestDTO}
+     * (name, username, email, password, optional role + isActivated). Audited
+     * as a {@code CREATE} row with the assigned role and seeded permission set
+     * captured in the {@code details} column.
+     */
+    @PostMapping
+    @PreAuthorize("hasAuthority('user:create')")
+    public ResponseEntity<UserAdminDTO> create(@Valid @RequestBody UserCreateRequestDTO dto,
+                                               Authentication auth,
+                                               HttpServletRequest request) {
+        return ResponseEntity.ok(adminUserService.createUserAsAdmin(dto, auth, request));
+    }
+
+    /**
+     * Admin-driven update of arbitrary user fields (name, username, email,
+     * password, role, isActivated). Audited as an {@code UPDATE} row whose
+     * {@code details} column carries a per-field diff. Role transitions trigger
+     * {@code applyRoleDefaults()} (seeding EMPLOYEE perms) and audit
+     * {@code previousRole}/{@code newRole} columns alongside the diff.
+     */
+    @PutMapping("/{userId}")
+    @PreAuthorize("hasAuthority('user:update')")
+    public ResponseEntity<UserAdminDTO> update(@PathVariable Long userId,
+                                               @Valid @RequestBody UserUpdateRequestDTO dto,
+                                               Authentication auth,
+                                               HttpServletRequest request) {
+        return ResponseEntity.ok(adminUserService.updateUserAsAdmin(userId, dto, auth, request));
     }
 
     /** Single user. */
@@ -144,6 +187,54 @@ public class AdminUserAPI {
                                                     Authentication auth,
                                                     HttpServletRequest request) {
         return ResponseEntity.ok(adminUserService.forceLogoutAll(userId, auth, request));
+    }
+
+    /**
+     * Hard-delete a user. Removes their sessions and the user row. Blocked if
+     * the caller is the same user, or if the target is the only remaining
+     * ADMIN. Audit row is written before the delete.
+     */
+    @DeleteMapping("/{userId}")
+    @PreAuthorize("hasAuthority('user:delete')")
+    public ResponseEntity<Void> delete(@PathVariable Long userId,
+                                       Authentication auth,
+                                       HttpServletRequest request) {
+        adminUserService.deleteUser(userId, auth, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Convenience: paged audit-log history scoped to one user. Same filter
+     * shape as {@code /api/admin/users/audit-logs} except {@code targetUserId}
+     * is taken from the path.
+     */
+    @GetMapping("/{userId}/audit-logs")
+    @PreAuthorize("hasAuthority('user:read')")
+    public ResponseEntity<Page<UserAuditLogDTO>> userAuditLogs(
+            @PathVariable Long userId,
+            @RequestParam(required = false) String actor,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) String sort
+    ) {
+        UserAuditAction parsedAction = null;
+        if (action != null && !action.isBlank()) {
+            try {
+                parsedAction = UserAuditAction.valueOf(action.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException(
+                        "Unknown action '" + action
+                                + "'. Use GET /api/admin/users/audit-logs/actions for the list.");
+            }
+        }
+        UserAuditLogService.Filter filter = new UserAuditLogService.Filter(
+                userId, null, actor, parsedAction, from, to, q
+        );
+        return ResponseEntity.ok(auditLogService.search(filter, page, size, sort));
     }
 
     // ─── Catalog ────────────────────────────────────────────────────────────

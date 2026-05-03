@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.user.repo;
 
+import ak.dev.khi_archive_platform.user.enums.Role;
 import ak.dev.khi_archive_platform.user.model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -10,6 +11,9 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
     Optional<User> findByEmail(String email);
+
+    /** Used by the admin delete-user flow to guard against deleting the last ADMIN. */
+    long countByRole(Role role);
 
     // ── 2-Phase Search ────────────────────────────────────────────────────────
 

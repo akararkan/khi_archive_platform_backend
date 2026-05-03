@@ -144,6 +144,21 @@ public class User implements Serializable, UserDetails {
     @Comment("Profile image URL provided by the external account source")
     private String imageUrl;
 
+    /**
+     * Seed the per-role default permissions into {@link #extraPermissions}
+     * <b>only when the set is currently empty</b> — so an admin who has
+     * already curated this user's perms is never overwritten. Called on
+     * first creation as EMPLOYEE and on role transitions into EMPLOYEE.
+     * No-op for GUEST (no defaults) and ADMIN (authorities flow from role).
+     */
+    public void applyRoleDefaults() {
+        if (role == null) return;
+        Set<String> defaults = Role.defaultExtraPermissions(role);
+        if (defaults.isEmpty()) return;
+        if (extraPermissions == null) extraPermissions = new HashSet<>();
+        if (extraPermissions.isEmpty()) extraPermissions.addAll(defaults);
+    }
+
     // ---------------- UserDetails ----------------
 
     @Override

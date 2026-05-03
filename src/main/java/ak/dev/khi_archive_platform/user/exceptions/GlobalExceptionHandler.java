@@ -110,6 +110,26 @@ public class GlobalExceptionHandler {
         return m.find() ? m.group(1) : null;
     }
 
+    @ExceptionHandler(IllegalAdminOperationException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalAdminOperation(
+            IllegalAdminOperationException ex,
+            HttpServletRequest request
+    ) {
+        Map<String, Object> details = ex.getDetails().isEmpty() ? null : new LinkedHashMap<>(ex.getDetails());
+        return build(HttpStatus.CONFLICT, ex.getErrorCode(), ex.getMessage(), request.getRequestURI(), details);
+    }
+
+    @ExceptionHandler(UnknownPermissionException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnknownPermission(
+            UnknownPermissionException ex,
+            HttpServletRequest request
+    ) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("unknown", ex.getUnknown());
+        details.put("catalog", "/api/admin/users/catalog/permissions");
+        return build(HttpStatus.BAD_REQUEST, "UNKNOWN_PERMISSION", ex.getMessage(), request.getRequestURI(), details);
+    }
+
     @ExceptionHandler({IllegalArgumentException.class, ConstraintViolationException.class,
             MethodArgumentNotValidException.class, BindException.class,
             HttpMessageNotReadableException.class, MissingServletRequestParameterException.class,

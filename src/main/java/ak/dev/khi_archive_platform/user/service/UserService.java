@@ -355,24 +355,26 @@ public class UserService implements UserDetailsService {
         }
 
         Instant now = Instant.now();
-        User saved = userRepository.save(
-                User.builder()
-                        .name(dto.getName())
-                        .username(dto.getUsername())
-                        .email(dto.getEmail())
-                        .password(passwordEncoder.encode(dto.getPassword()))
-                        .role(dto.getRole() != null ? dto.getRole() : Role.GUEST)
-                        .provider("local")
-                        .profileImage(imagePath)
-                        .isActivated(dto.getIsActivated() != null ? dto.getIsActivated() : true)
-                        .createdAt(now)
-                        .updatedAt(now)
-                        .failedAttempts(0)
-                        .isLocked(false)
-                        .passwordExpiryDate(now.plus(PASSWORD_EXPIRY))
-                        .build()
-        );
-        return toResponse(saved);
+        User toCreate = User.builder()
+                .name(dto.getName())
+                .username(dto.getUsername())
+                .email(dto.getEmail())
+                .password(passwordEncoder.encode(dto.getPassword()))
+                .role(dto.getRole() != null ? dto.getRole() : Role.GUEST)
+                .provider("local")
+                .profileImage(imagePath)
+                .isActivated(dto.getIsActivated() != null ? dto.getIsActivated() : true)
+                .createdAt(now)
+                .updatedAt(now)
+                .failedAttempts(0)
+                .isLocked(false)
+                .passwordExpiryDate(now.plus(PASSWORD_EXPIRY))
+                .build();
+        // Seed role defaults so a freshly-created EMPLOYEE starts with the
+        // standard READ/CREATE/UPDATE set across resources (admin can revoke
+        // any of them later through /api/admin/users/{id}/permissions).
+        toCreate.applyRoleDefaults();
+        return toResponse(userRepository.save(toCreate));
     }
 
     public List<UserResponseDTO> getAllUsers() {
@@ -409,7 +411,13 @@ public class UserService implements UserDetailsService {
         if (dto.getName() != null) u.setName(dto.getName());
         if (dto.getUsername() != null) u.setUsername(dto.getUsername());
         if (dto.getEmail() != null) u.setEmail(dto.getEmail());
-        if (dto.getRole() != null) u.setRole(dto.getRole());
+        if (dto.getRole() != null) {
+            u.setRole(dto.getRole());
+            // Seed the role's default per-user permissions on first transition
+            // to a role that has any (currently only EMPLOYEE). Skipped if the
+            // user already has any extras so an admin's curated set survives.
+            u.applyRoleDefaults();
+        }
         if (dto.getIsActivated() != null) u.setIsActivated(dto.getIsActivated());
 
         if (dto.getPassword() != null && !dto.getPassword().isBlank()) {
