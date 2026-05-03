@@ -69,9 +69,45 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiErrorResponse> handleAccessDenied(
             AccessDeniedException ex,
+            org.springframework.web.method.HandlerMethod handler,
             HttpServletRequest request
     ) {
-        return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED", ex.getMessage(), request.getRequestURI(), null);
+        Map<String, Object> details = new LinkedHashMap<>();
+        String required = extractRequiredAuthority(handler);
+        if (required != null) details.put("requiredAuthority", required);
+
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
+            details.put("actor", auth.getName());
+            details.put("actorAuthorities", auth.getAuthorities().stream()
+                    .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                    .filter(a -> a != null && !a.isBlank())
+                    .distinct()
+                    .sorted()
+                    .toList());
+        }
+        details.put("requestMethod", request.getMethod());
+
+        String message = required != null
+                ? "You don't have permission to perform this action. Required authority: '" + required + "'."
+                : "You don't have permission to perform this action.";
+        return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED", message, request.getRequestURI(), details);
+    }
+
+    private String extractRequiredAuthority(org.springframework.web.method.HandlerMethod handler) {
+        if (handler == null) return null;
+        org.springframework.security.access.prepost.PreAuthorize ann =
+                handler.getMethodAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+        if (ann == null) {
+            ann = handler.getBeanType().getAnnotation(
+                    org.springframework.security.access.prepost.PreAuthorize.class);
+        }
+        if (ann == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("has(?:Authority|Role)\\s*\\(\\s*'([^']+)'\\s*\\)")
+                .matcher(ann.value());
+        return m.find() ? m.group(1) : null;
     }
 
     @ExceptionHandler({IllegalArgumentException.class, ConstraintViolationException.class,

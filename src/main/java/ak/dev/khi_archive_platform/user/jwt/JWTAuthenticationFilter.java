@@ -92,16 +92,18 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
             // caused a NullPointerException whenever a controller injected
             // @AuthenticationPrincipal UserDetails principal.
             // ─────────────────────────────────────────────────────────────────
-            if (hasText(username) && SecurityContextHolder.getContext().getAuthentication() == null) {
+            if (hasText(username)) {
+                // Reload the user fresh from DB on EVERY request so role and
+                // extra-permission grants take effect immediately. Skipping this
+                // when SecurityContext already has an Authentication (the prior
+                // behaviour) only worked for stateless flows; if a session ever
+                // persisted the context, granted permissions would be stuck at
+                // login-time values until the user re-authenticated.
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                // Pull authorities from the live User entity (via Role) on every
-                // request — never from the JWT. JWT-frozen authorities go stale
-                // whenever the role/permission model changes or a user's role
-                // is updated, causing surprise 403s on otherwise-allowed calls.
                 List<GrantedAuthority> authorities = new ArrayList<>(userDetails.getAuthorities());
                 Authentication authentication = jwtTokenProvider.getAuthentication(userDetails, authorities, request);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                logger.debug("User '{}' authenticated successfully", username);
+                logger.debug("User '{}' authenticated with {} authorities", username, authorities.size());
             }
 
         } catch (Exception ex) {

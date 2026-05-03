@@ -151,16 +151,20 @@ public class AnalyticsService {
      * default (no extra constraints). Filtered requests bypass cache and run
      * the indexed CTE directly.
      */
-    @Cacheable(value = "analytics:user",
-            key = "#username + ':' + #filter.toCacheKey() + ':' + #recentLimit",
+    /** Sort direction for the activity feed. Defaults to {@code DESC} (newest first). */
+    public enum SortDirection { ASC, DESC }
+
+    @Cacheable(value = "analytics:user.v2",
+            key = "#username + ':' + #filter.toCacheKey() + ':' + #page + ':' + #size + ':' + #sort",
             condition = "#filter.isCacheable()")
-    public UserActivityDTO getUserActivity(String username, AnalyticsFilter filter, int recentLimit) {
+    public UserActivityDTO getUserActivity(String username, AnalyticsFilter filter,
+                                           int page, int size, SortDirection sort) {
         AnalyticsFilter f = withActor(filter, username);
         Window w = window(f);
 
         Map<String, EntityStatsDTO> byEntity = loadEntityStats(f, w);
         List<DailyBucketDTO> daily = loadDailyBuckets(f, w);
-        List<RecentActivityItemDTO> recent = loadRecentFeed(f, w, recentLimit, 0).getItems();
+        FeedPageDTO recent = loadRecentFeed(f, w, size, page, sort);
         long total = byEntity.values().stream().mapToLong(EntityStatsDTO::getTotal).sum();
 
         Object[] firstLast = loadFirstLastSeen(f, w);
@@ -182,7 +186,7 @@ public class AnalyticsService {
                 .build();
     }
 
-    @Cacheable(value = "analytics:overview",
+    @Cacheable(value = "analytics:overview.v2",
             key = "#filter.toCacheKey() + ':' + #topN",
             condition = "#filter.isCacheable()")
     public TeamOverviewDTO getOverview(AnalyticsFilter filter, int topN) {
@@ -209,7 +213,7 @@ public class AnalyticsService {
                 .build();
     }
 
-    @Cacheable(value = "analytics:users",
+    @Cacheable(value = "analytics:users.v2",
             key = "#filter.toCacheKey()",
             condition = "#filter.isCacheable()")
     public List<UserSummaryDTO> getUsers(AnalyticsFilter filter) {
@@ -234,11 +238,13 @@ public class AnalyticsService {
         return loadEntityStats(filter, window(filter));
     }
 
-    /** Paginated cross-entity feed. Always live. */
-    public FeedPageDTO getFeed(AnalyticsFilter filter, int page, int size) {
+    /** Paginated cross-entity feed. Always live (no cache, since pagination
+     *  combinatorial space and TTL would dilute hit-rate to nothing useful). */
+    public FeedPageDTO getFeed(AnalyticsFilter filter, int page, int size, SortDirection sort) {
         int safePage = Math.max(0, page);
         int safeSize = Math.max(1, Math.min(size, 500));
-        return loadRecentFeed(filter, window(filter), safeSize, safePage);
+        return loadRecentFeed(filter, window(filter), safeSize, safePage,
+                sort == null ? SortDirection.DESC : sort);
     }
 
     // ─── Cache invalidation ─────────────────────────────────────────────────
@@ -360,12 +366,14 @@ public class AnalyticsService {
     }
 
     @SuppressWarnings("unchecked")
-    private FeedPageDTO loadRecentFeed(AnalyticsFilter filter, Window w, int size, int page) {
+    private FeedPageDTO loadRecentFeed(AnalyticsFilter filter, Window w, int size, int page,
+                                       SortDirection sort) {
         WhereClause where = buildWhere(filter, w, sanitisedEntities(filter));
+        String direction = sort == SortDirection.ASC ? "ASC" : "DESC";
 
         // Two queries: one for the page slice, one for total count. The count
         // is needed so the UI can render pagination controls; both share the
-        // same indexed (occurred_at DESC) traversal.
+        // same indexed (occurred_at) traversal.
         String pageSql = ALL_LOGS_CTE + """
                 SELECT entity, action,
                        entity_id, entity_code,
@@ -375,7 +383,7 @@ public class AnalyticsService {
                        ip_address, device_info, session_id,
                        occurred_at, details
                   FROM all_logs
-                """ + where.sql + " ORDER BY occurred_at DESC LIMIT :limit OFFSET :offset";
+                """ + where.sql + " ORDER BY occurred_at " + direction + " LIMIT :limit OFFSET :offset";
 
         Query q = em.createNativeQuery(pageSql);
         where.bind(q);
@@ -545,8 +553,8 @@ public class AnalyticsService {
             from = to.minusSeconds((long) days * 86_400);
         }
         if (from.isAfter(to)) {
-            // swap silently — easier UX than 400ing on a transposed range
-            Instant tmp = from; from = to; to = tmp;
+            throw new IllegalArgumentException(
+                    "Invalid date range: 'from' (" + from + ") is after 'to' (" + to + ")");
         }
         return new Window(from, to);
     }

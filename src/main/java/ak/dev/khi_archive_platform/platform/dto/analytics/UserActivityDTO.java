@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+
 /**
  * Comprehensive activity picture for a single user over a time window.
  * Built from a single UNION ALL query across the seven {@code *_audit_logs}
@@ -45,5 +46,8 @@ public class UserActivityDTO implements Serializable {
     private long totalActions;
     private Map<String, EntityStatsDTO> byEntity;
     private List<DailyBucketDTO> daily;
-    private List<RecentActivityItemDTO> recent;
+    /** Paginated slice of this user's activity, ordered per the request's
+     *  {@code sort} parameter. Carries {@code page/size/totalElements/...} so
+     *  the UI can render full pagination controls. */
+    private FeedPageDTO recent;
 }

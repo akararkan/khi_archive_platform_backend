@@ -252,8 +252,56 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleAccessDenied(AccessDeniedException ex,
+                                                               org.springframework.web.method.HandlerMethod handler,
                                                                HttpServletRequest request) {
-        return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED", ex.getMessage(), request.getRequestURI(), null);
+        Map<String, Object> details = new LinkedHashMap<>();
+
+        // Required authority — extract from the handler's @PreAuthorize when available.
+        // Format we recognise: hasAuthority('audio:create') / hasRole('ADMIN').
+        String required = extractRequiredAuthority(handler);
+        if (required != null) details.put("requiredAuthority", required);
+
+        // Actor info — useful for the frontend to show "you have X, you need Y".
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
+            details.put("actor", auth.getName());
+            java.util.List<String> authorities = auth.getAuthorities().stream()
+                    .map(org.springframework.security.core.GrantedAuthority::getAuthority)
+                    .filter(a -> a != null && !a.isBlank())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            details.put("actorAuthorities", authorities);
+        }
+        details.put("requestMethod", request.getMethod());
+
+        String message = required != null
+                ? "You don't have permission to perform this action. Required authority: '" + required + "'."
+                : "You don't have permission to perform this action.";
+
+        return build(HttpStatus.FORBIDDEN, "ACCESS_DENIED", message,
+                request.getRequestURI(), details);
+    }
+
+    /** Pulls the authority/role string out of a {@code @PreAuthorize("hasAuthority('xxx')")}
+     *  or {@code hasRole('xxx')} expression on the resolved handler method. Returns null
+     *  if the handler isn't annotated, the expression doesn't match, or the handler
+     *  method couldn't be resolved (e.g. denial happened before routing). */
+    private String extractRequiredAuthority(org.springframework.web.method.HandlerMethod handler) {
+        if (handler == null) return null;
+        org.springframework.security.access.prepost.PreAuthorize ann =
+                handler.getMethodAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+        if (ann == null) {
+            ann = handler.getBeanType().getAnnotation(
+                    org.springframework.security.access.prepost.PreAuthorize.class);
+        }
+        if (ann == null) return null;
+        String expr = ann.value();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("has(?:Authority|Role)\\s*\\(\\s*'([^']+)'\\s*\\)")
+                .matcher(expr);
+        return m.find() ? m.group(1) : null;
     }
 
     // ─── 415 / 413 Media ────────────────────────────────────────────────────────

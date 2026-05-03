@@ -10,9 +10,15 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import ak.dev.khi_archive_platform.user.consts.SecurityConstants;
 
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(
@@ -59,6 +65,22 @@ public class User implements Serializable, UserDetails {
     @Comment("Assigned application role for authorization")
     private Role role;
 
+    /**
+     * Per-user permissions granted by an admin on top of the role's defaults.
+     * Effective authorities = role's authorities ∪ this set. Stored eager so
+     * the JWT filter doesn't trigger a second query while authorising every
+     * request — the set is small (at most a few dozen strings per user).
+     */
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "user_permissions",
+            joinColumns = @JoinColumn(name = "user_id"),
+            uniqueConstraints = @UniqueConstraint(
+                    name = "uk_user_permissions_user_perm",
+                    columnNames = {"user_id", "permission"}))
+    @Column(name = "permission", length = 100, nullable = false)
+    @Comment("Extra permissions granted to this user beyond the role's defaults")
+    private Set<String> extraPermissions = new HashSet<>();
 
     @Column(name = "is_activated", nullable = false)
     @Builder.Default
@@ -126,7 +148,15 @@ public class User implements Serializable, UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return role.getAuthorities();
+        List<GrantedAuthority> authorities = new ArrayList<>(role.getAuthorities());
+        if (extraPermissions != null) {
+            for (String permission : extraPermissions) {
+                if (permission != null && !permission.isBlank()) {
+                    authorities.add(new SimpleGrantedAuthority(permission));
+                }
+            }
+        }
+        return authorities;
     }
 
     @Override

@@ -45,7 +45,8 @@ public class AuditLogIndexInitializer {
             "project_audit_logs",
             "category_audit_logs",
             "person_audit_logs",
-            "analytics_audit_logs"
+            "analytics_audit_logs",
+            "user_audit_logs"
     );
 
     private final JdbcTemplate jdbcTemplate;

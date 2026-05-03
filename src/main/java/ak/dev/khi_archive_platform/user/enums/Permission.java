@@ -4,8 +4,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Application-resource permissions.
- * Pattern: {@code <resource>:<action>}.
+ * Every permission the system recognises. Pattern: {@code <resource>:<action>}.
  *
  * Actions:
  *   read   — list / get / search
@@ -14,7 +13,9 @@ import lombok.RequiredArgsConstructor;
  *   remove — soft remove (record stays in DB, flagged removed)
  *   delete — hard delete (row physically removed) — ADMIN only
  *
- * User-account permissions live in {@link UserPermission}.
+ * Resources include the seven content types (audio/video/image/text/category/
+ * person/project) PLUS the {@code user} resource, used by the admin
+ * user-management endpoints under {@code /api/admin/users}.
  */
 @Getter
 @RequiredArgsConstructor
@@ -67,7 +68,17 @@ public enum Permission {
     PROJECT_CREATE("project:create"),
     PROJECT_UPDATE("project:update"),
     PROJECT_REMOVE("project:remove"),
-    PROJECT_DELETE("project:delete");
+    PROJECT_DELETE("project:delete"),
+
+    // ── User (admin-only by default) ────────────────────────
+    // Used by the /api/admin/users endpoints. ADMIN gets all five via the
+    // Role definition; admins can also grant individual user:* authorities
+    // to non-ADMINs to delegate, e.g., user-listing without full ADMIN power.
+    USER_READ("user:read"),
+    USER_CREATE("user:create"),
+    USER_UPDATE("user:update"),
+    USER_REMOVE("user:remove"),
+    USER_DELETE("user:delete");
 
     private final String permission;
 }

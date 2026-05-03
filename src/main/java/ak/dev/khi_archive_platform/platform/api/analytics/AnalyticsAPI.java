@@ -55,7 +55,6 @@ import java.util.Set;
 @PreAuthorize("hasRole('ADMIN')")
 public class AnalyticsAPI {
 
-    private static final int DEFAULT_RECENT = 50;
     private static final int MAX_RECENT = 500;
     private static final int DEFAULT_TOP = 10;
     private static final int MAX_TOP = 100;
@@ -64,7 +63,7 @@ public class AnalyticsAPI {
     private final AnalyticsService analyticsService;
     private final AnalyticsAuditService auditService;
 
-    /** Calling admin's own activity picture. */
+    /** Calling admin's own activity picture, with a paginated recent feed. */
     @GetMapping("/me")
     public ResponseEntity<UserActivityDTO> me(
             @RequestParam(value = "days",        required = false) Integer days,
@@ -75,18 +74,22 @@ public class AnalyticsAPI {
             @RequestParam(value = "actorPattern",required = false) String actorPattern,
             @RequestParam(value = "entityCode",  required = false) String entityCode,
             @RequestParam(value = "q",           required = false) String q,
-            @RequestParam(value = "recent",      required = false) Integer recent,
+            @RequestParam(value = "page",        required = false) Integer page,
+            @RequestParam(value = "size",        required = false) Integer size,
+            @RequestParam(value = "sort",        required = false) String sort,
             Authentication auth,
             HttpServletRequest request) {
         AnalyticsFilter filter = build(days, from, to, entities, actions, null, actorPattern, entityCode, q);
-        int recentLimit = clampRecent(recent);
-        UserActivityDTO body = analyticsService.getUserActivity(auth.getName(), filter, recentLimit);
-        auditService.record(AnalyticsAuditAction.VIEW_USER, filter.toCacheKey(), auth, request,
-                "Self activity (recent=" + recentLimit + ")");
+        int p = clampPage(page);
+        int s = clampPageSize(size);
+        AnalyticsService.SortDirection dir = parseSort(sort);
+        UserActivityDTO body = analyticsService.getUserActivity(auth.getName(), filter, p, s, dir);
+        auditService.record(AnalyticsAuditAction.VIEW_USER, filter.toCacheKey() + ":page=" + p + ":size=" + s + ":sort=" + dir,
+                auth, request, "Self activity (page=" + p + " size=" + s + " sort=" + dir + ")");
         return ResponseEntity.ok(body);
     }
 
-    /** Any user's activity. */
+    /** Any user's activity, with a paginated recent feed. */
     @GetMapping("/users/{username}")
     public ResponseEntity<UserActivityDTO> userActivity(
             @PathVariable String username,
@@ -97,14 +100,20 @@ public class AnalyticsAPI {
             @RequestParam(value = "actions",     required = false) String actions,
             @RequestParam(value = "entityCode",  required = false) String entityCode,
             @RequestParam(value = "q",           required = false) String q,
-            @RequestParam(value = "recent",      required = false) Integer recent,
+            @RequestParam(value = "page",        required = false) Integer page,
+            @RequestParam(value = "size",        required = false) Integer size,
+            @RequestParam(value = "sort",        required = false) String sort,
             Authentication auth,
             HttpServletRequest request) {
         AnalyticsFilter filter = build(days, from, to, entities, actions, null, null, entityCode, q);
-        int recentLimit = clampRecent(recent);
-        UserActivityDTO body = analyticsService.getUserActivity(username, filter, recentLimit);
-        auditService.record(AnalyticsAuditAction.VIEW_USER, filter.toCacheKey() + ":target=" + username,
-                auth, request, "User activity for " + username + " (recent=" + recentLimit + ")");
+        int p = clampPage(page);
+        int s = clampPageSize(size);
+        AnalyticsService.SortDirection dir = parseSort(sort);
+        UserActivityDTO body = analyticsService.getUserActivity(username, filter, p, s, dir);
+        auditService.record(AnalyticsAuditAction.VIEW_USER,
+                filter.toCacheKey() + ":target=" + username + ":page=" + p + ":size=" + s + ":sort=" + dir,
+                auth, request, "User activity for " + username
+                        + " (page=" + p + " size=" + s + " sort=" + dir + ")");
         return ResponseEntity.ok(body);
     }
 
@@ -150,8 +159,8 @@ public class AnalyticsAPI {
     }
 
     /**
-     * Cross-entity activity feed in chronological order, paginated. {@code page}
-     * and {@code size} default to 0/50; cap at 500 per page.
+     * Cross-entity activity feed in chronological order, paginated. Defaults:
+     * {@code page=0}, {@code size=50}, {@code sort=desc}. Caps: 500 per page.
      */
     @GetMapping("/feed")
     public ResponseEntity<FeedPageDTO> feed(
@@ -166,15 +175,18 @@ public class AnalyticsAPI {
             @RequestParam(value = "q",           required = false) String q,
             @RequestParam(value = "page",        required = false) Integer page,
             @RequestParam(value = "size",        required = false) Integer size,
+            @RequestParam(value = "sort",        required = false) String sort,
             Authentication auth,
             HttpServletRequest request) {
         AnalyticsFilter filter = build(days, from, to, entities, actions, actor, actorPattern, entityCode, q);
-        int p = page == null ? 0 : Math.max(0, page);
-        int s = size == null ? DEFAULT_PAGE_SIZE : Math.max(1, Math.min(size, MAX_RECENT));
-        FeedPageDTO body = analyticsService.getFeed(filter, p, s);
+        int p = clampPage(page);
+        int s = clampPageSize(size);
+        AnalyticsService.SortDirection dir = parseSort(sort);
+        FeedPageDTO body = analyticsService.getFeed(filter, p, s, dir);
         auditService.record(AnalyticsAuditAction.VIEW_FEED,
-                filter.toCacheKey() + ":page=" + p + ":size=" + s, auth, request,
-                "Activity feed (page=" + p + " size=" + s + " total=" + body.getTotalElements() + ")");
+                filter.toCacheKey() + ":page=" + p + ":size=" + s + ":sort=" + dir, auth, request,
+                "Activity feed (page=" + p + " size=" + s + " sort=" + dir
+                        + " total=" + body.getTotalElements() + ")");
         return ResponseEntity.ok(body);
     }
 
@@ -269,9 +281,24 @@ public class AnalyticsAPI {
         return out.isEmpty() ? null : out;
     }
 
-    private static int clampRecent(Integer limit) {
-        if (limit == null || limit <= 0) return DEFAULT_RECENT;
-        return Math.min(limit, MAX_RECENT);
+    private static int clampPage(Integer page) {
+        if (page == null || page < 0) return 0;
+        return page;
+    }
+
+    private static int clampPageSize(Integer size) {
+        if (size == null || size <= 0) return DEFAULT_PAGE_SIZE;
+        return Math.min(size, MAX_RECENT);
+    }
+
+    private static AnalyticsService.SortDirection parseSort(String sort) {
+        if (sort == null) return AnalyticsService.SortDirection.DESC;
+        String norm = sort.trim().toLowerCase(Locale.ROOT);
+        // Accept "asc", "desc", "occurredAt,asc", "occurredAt,desc" (Spring-style).
+        if (norm.endsWith("asc"))  return AnalyticsService.SortDirection.ASC;
+        if (norm.endsWith("desc")) return AnalyticsService.SortDirection.DESC;
+        throw new IllegalArgumentException(
+                "Invalid sort value: '" + sort + "'. Allowed: asc | desc");
     }
 
     private static int clampTop(Integer topN) {

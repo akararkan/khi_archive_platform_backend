@@ -37,8 +37,12 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
 
+                // STATELESS for JWT — no HTTP session, no SecurityContext caching.
+                // Without this the SecurityContextPersistenceFilter caches the
+                // first-request Authentication for the life of the session, so
+                // role/permission grants only take effect after logout+login.
                 .sessionManagement(sm -> sm
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
 
                 .authenticationProvider(authenticationProvider)
