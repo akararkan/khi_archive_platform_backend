@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.api.image;
 
 import ak.dev.khi_archive_platform.platform.dto.image.ImageBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.image.ImageFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.exceptions.ImageValidationException;
@@ -34,14 +35,30 @@ public class ImageAPI {
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
+    /**
+     * List active image records with optional filter + sort.
+     *
+     * Filter params are bound from query string into {@link ImageFilterParams}
+     * (Spring's @ModelAttribute style). See that class for the full catalog
+     * of supported fields. With no params, returns the cached active list
+     * directly — fastest path, identical behavior to before.
+     *
+     * Examples:
+     *   GET /api/image?form=photograph&sortBy=originalTitle&sortDirection=asc
+     *   GET /api/image?orientation=landscape&sortBy=dateCreated&sortDirection=desc
+     *   GET /api/image?tags=family,1980s&tagMatch=any&versionNumberMin=1
+     *   GET /api/image?location=Sulaimani&dateCreatedFrom=1980-01-01T00:00:00Z&dateCreatedTo=2000-12-31T23:59:59Z
+     *   GET /api/image?subject=portrait&subject=landscape&subjectMatch=all
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('image:read')")
     public ResponseEntity<Page<ImageResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @ModelAttribute ImageFilterParams filter,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(imageService.getAll(pageable, auth, request));
+        return ResponseEntity.ok(imageService.getAll(pageable, filter, auth, request));
     }
 
     /**

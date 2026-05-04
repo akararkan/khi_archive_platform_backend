@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageBaseRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.image.ImageFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.ImageAuditAction;
@@ -227,21 +228,28 @@ public class ImageService {
     }
 
     /**
-     * Fast path: served from Redis on cache hit. On miss, one query loads
-     * active images; lazy collections (subjects/genres/colors/usages/tags/
-     * keywords + project) are batched-fetched (no N+1) thanks to Hibernate's
-     * {@code default_batch_fetch_size}, then mapped to DTOs and cached for
-     * 10 minutes. Audit is always recorded.
+     * Fast path: served from Redis on hit; on miss loads with batched fetches and caches.
+     *
+     * Filter + sort is applied in-memory over the cached active list — single
+     * O(N) pass with cheap-first short-circuiting and zero-alloc collection
+     * matching. With no filter params this collapses to the original cached
+     * pass-through.
      */
     @Transactional(readOnly = true)
-    public Page<ImageResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<ImageResponseDTO> getAll(Pageable pageable,
+                                         ImageFilterParams filterParams,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        ImageFilterParams params = filterParams == null ? new ImageFilterParams() : filterParams;
         List<ImageResponseDTO> all = readCache.getAllActive();
-        Page<ImageResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<ImageResponseDTO> view = ImageFilterSupport.applyFiltersAndSort(all, params);
+        Page<ImageResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         imageAuditService.record(null, ImageAuditAction.LIST, authentication, request,
                 "Listed active image records (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + (params.isEmpty() ? "" : " filtered=true") + ")");
         return page;
     }
 

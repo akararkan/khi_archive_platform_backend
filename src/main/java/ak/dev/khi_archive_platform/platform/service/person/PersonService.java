@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.person;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.person.PersonFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.DatePrecision;
@@ -77,18 +78,67 @@ public class PersonService {
     /**
      * Fast path: served from Redis on cache hit; on miss, single JOIN FETCH query
      * loads persons + personType without N+1, maps to DTOs, caches for 10 min.
+     *
+     * Filter + sort (gender, personType, region, dob/dod range, places, tags,
+     * keywords, audit ranges, and sort by name/createdAt/updatedAt/dob/dod) is
+     * applied in-memory over the cached list — O(N) over a small set, no DB
+     * round-trip. When no filter params are supplied this collapses to the
+     * original cached pass-through.
+     *
      * Audit is always recorded (cache only fronts the read, not the audit).
      */
     @Transactional(readOnly = true)
-    public Page<PersonResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<PersonResponseDTO> getAll(Pageable pageable,
+                                          PersonFilterParams filterParams,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        PersonFilterParams params = filterParams == null ? PersonFilterParams.EMPTY : filterParams;
         List<PersonResponseDTO> all = readCache.getAllActive();
-        Page<PersonResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<PersonResponseDTO> view = PersonFilterSupport.applyFiltersAndSort(all, params);
+        Page<PersonResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         personAuditService.record(null, PersonAuditAction.LIST, authentication, request,
                 "Listed active person records (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + describeFilters(params) + ")");
         return page;
+    }
+
+    private static String describeFilters(PersonFilterParams p) {
+        if (p == null || p.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        if (p.sortBy() != null && !p.sortBy().isBlank()) {
+            sb.append(" sortBy=").append(p.sortBy());
+            if (p.sortDirection() != null && !p.sortDirection().isBlank()) {
+                sb.append(" dir=").append(p.sortDirection());
+            }
+        }
+        if (p.gender() != null) sb.append(" gender=").append(p.gender());
+        if (p.personType() != null && !p.personType().isEmpty()) {
+            sb.append(" personType=").append(p.personType())
+                    .append(" personTypeMatch=").append(p.personTypeMatch() == null ? "any" : p.personTypeMatch());
+        }
+        if (p.region() != null && !p.region().isBlank()) sb.append(" region=").append(p.region());
+        if (p.dobFrom() != null) sb.append(" dobFrom=").append(p.dobFrom());
+        if (p.dobTo() != null) sb.append(" dobTo=").append(p.dobTo());
+        if (p.dodFrom() != null) sb.append(" dodFrom=").append(p.dodFrom());
+        if (p.dodTo() != null) sb.append(" dodTo=").append(p.dodTo());
+        if (p.placeOfBirth() != null && !p.placeOfBirth().isBlank()) sb.append(" placeOfBirth=").append(p.placeOfBirth());
+        if (p.placeOfDeath() != null && !p.placeOfDeath().isBlank()) sb.append(" placeOfDeath=").append(p.placeOfDeath());
+        if (p.tags() != null && !p.tags().isEmpty()) {
+            sb.append(" tags=").append(p.tags())
+                    .append(" tagMatch=").append(p.tagMatch() == null ? "any" : p.tagMatch());
+        }
+        if (p.keywords() != null && !p.keywords().isEmpty()) {
+            sb.append(" keywords=").append(p.keywords())
+                    .append(" keywordMatch=").append(p.keywordMatch() == null ? "any" : p.keywordMatch());
+        }
+        if (p.createdFrom() != null) sb.append(" createdFrom=").append(p.createdFrom());
+        if (p.createdTo() != null) sb.append(" createdTo=").append(p.createdTo());
+        if (p.updatedFrom() != null) sb.append(" updatedFrom=").append(p.updatedFrom());
+        if (p.updatedTo() != null) sb.append(" updatedTo=").append(p.updatedTo());
+        return sb.toString();
     }
 
     private static final double SEARCH_SIMILARITY_THRESHOLD = 0.3;

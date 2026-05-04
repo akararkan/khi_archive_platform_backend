@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioBaseRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.audio.AudioFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.AudioAuditAction;
@@ -221,16 +222,29 @@ public class AudioService {
         return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
     }
 
-    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
+    /**
+     * Fast path: served from Redis on hit; on miss loads with batched fetches and caches.
+     *
+     * Filter + sort is applied in-memory over the cached active list — single
+     * O(N) pass with cheap-first short-circuiting and zero-alloc collection
+     * matching. With no filter params this collapses to the original cached
+     * pass-through.
+     */
     @Transactional(readOnly = true)
-    public Page<AudioResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<AudioResponseDTO> getAll(Pageable pageable,
+                                         AudioFilterParams filterParams,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        AudioFilterParams params = filterParams == null ? new AudioFilterParams() : filterParams;
         List<AudioResponseDTO> all = readCache.getAllActive();
-        Page<AudioResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<AudioResponseDTO> view = AudioFilterSupport.applyFiltersAndSort(all, params);
+        Page<AudioResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         audioAuditService.record(null, AudioAuditAction.LIST, authentication, request,
                 "Listed active audio records (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + (params.isEmpty() ? "" : " filtered=true") + ")");
         return page;
     }
 

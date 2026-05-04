@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoBaseRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.video.VideoFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.VideoAuditAction;
@@ -223,16 +224,29 @@ public class VideoService {
         return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
     }
 
-    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
+    /**
+     * Fast path: served from Redis on hit; on miss loads with batched fetches and caches.
+     *
+     * Filter + sort is applied in-memory over the cached active list — single
+     * O(N) pass with cheap-first short-circuiting and zero-alloc collection
+     * matching. With no filter params this collapses to the original cached
+     * pass-through.
+     */
     @Transactional(readOnly = true)
-    public Page<VideoResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<VideoResponseDTO> getAll(Pageable pageable,
+                                         VideoFilterParams filterParams,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        VideoFilterParams params = filterParams == null ? new VideoFilterParams() : filterParams;
         List<VideoResponseDTO> all = readCache.getAllActive();
-        Page<VideoResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<VideoResponseDTO> view = VideoFilterSupport.applyFiltersAndSort(all, params);
+        Page<VideoResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         videoAuditService.record(null, VideoAuditAction.LIST, authentication, request,
                 "Listed active video records (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + (params.isEmpty() ? "" : " filtered=true") + ")");
         return page;
     }
 

@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.text.TextBaseRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.text.TextFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.TextAuditAction;
@@ -220,16 +221,29 @@ public class TextService {
         return new BulkCreateResult(dtos.size(), toInsert.size(), skipped, elapsed);
     }
 
-    /** Fast path: served from Redis on hit; on miss loads with batched fetches and caches. */
+    /**
+     * Fast path: served from Redis on hit; on miss loads with batched fetches and caches.
+     *
+     * Filter + sort is applied in-memory over the cached active list — single
+     * O(N) pass with cheap-first short-circuiting and zero-alloc collection
+     * matching. With no filter params this collapses to the original cached
+     * pass-through.
+     */
     @Transactional(readOnly = true)
-    public Page<TextResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<TextResponseDTO> getAll(Pageable pageable,
+                                        TextFilterParams filterParams,
+                                        Authentication authentication,
+                                        HttpServletRequest request) {
+        TextFilterParams params = filterParams == null ? new TextFilterParams() : filterParams;
         List<TextResponseDTO> all = readCache.getAllActive();
-        Page<TextResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<TextResponseDTO> view = TextFilterSupport.applyFiltersAndSort(all, params);
+        Page<TextResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         textAuditService.record(null, TextAuditAction.LIST, authentication, request,
                 "Listed active text records (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + (params.isEmpty() ? "" : " filtered=true") + ")");
         return page;
     }
 

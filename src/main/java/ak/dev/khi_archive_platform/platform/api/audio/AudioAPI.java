@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.api.audio;
 
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.audio.AudioFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.exceptions.AudioValidationException;
@@ -34,14 +35,30 @@ public class AudioAPI {
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
+    /**
+     * List active audio records with optional filter + sort.
+     *
+     * Filter params are bound from query string into {@link AudioFilterParams}
+     * (Spring's @ModelAttribute style). See that class for the full catalog
+     * of supported fields. With no params, returns the cached active list
+     * directly — fastest path, identical behavior to before.
+     *
+     * Examples:
+     *   GET /api/audio?form=song&sortBy=originTitle&sortDirection=asc
+     *   GET /api/audio?language=Kurdish&dialect=Sorani&sortBy=dateCreated&sortDirection=desc
+     *   GET /api/audio?tags=folk,ballad&tagMatch=any&audioQualityMin=7
+     *   GET /api/audio?city=Sulaimani&dateCreatedFrom=1980-01-01T00:00:00Z&dateCreatedTo=2000-12-31T23:59:59Z
+     *   GET /api/audio?contributors=Ali&contributors=Aza&contributorMatch=all
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('audio:read')")
     public ResponseEntity<Page<AudioResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @ModelAttribute AudioFilterParams filter,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(audioService.getAll(pageable, auth, request));
+        return ResponseEntity.ok(audioService.getAll(pageable, filter, auth, request));
     }
 
     /**

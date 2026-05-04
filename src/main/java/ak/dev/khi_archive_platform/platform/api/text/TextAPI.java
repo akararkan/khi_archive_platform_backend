@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.api.text;
 
 import ak.dev.khi_archive_platform.platform.dto.text.TextBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.text.TextFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.exceptions.TextValidationException;
@@ -34,14 +35,30 @@ public class TextAPI {
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
+    /**
+     * List active text records with optional filter + sort.
+     *
+     * Filter params are bound from query string into {@link TextFilterParams}
+     * (Spring's @ModelAttribute style). See that class for the full catalog
+     * of supported fields. With no params, returns the cached active list
+     * directly — fastest path, identical behavior to before.
+     *
+     * Examples:
+     *   GET /api/text?documentType=book&sortBy=originalTitle&sortDirection=asc
+     *   GET /api/text?language=Kurdish&dialect=Sorani&sortBy=printDate&sortDirection=desc
+     *   GET /api/text?author=Ahmadi&sortBy=author&sortDirection=asc
+     *   GET /api/text?pageCountMin=100&pageCountMax=500&sortBy=pageCount
+     *   GET /api/text?subject=poetry&genre=ballad&genreMatch=any&printDateFrom=1900-01-01T00:00:00Z
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('text:read')")
     public ResponseEntity<Page<TextResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @ModelAttribute TextFilterParams filter,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(textService.getAll(pageable, auth, request));
+        return ResponseEntity.ok(textService.getAll(pageable, filter, auth, request));
     }
 
     /**

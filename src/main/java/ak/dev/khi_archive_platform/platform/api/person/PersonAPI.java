@@ -1,8 +1,10 @@
 package ak.dev.khi_archive_platform.platform.api.person;
 
 import ak.dev.khi_archive_platform.platform.dto.person.PersonCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.person.PersonFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.enums.Gender;
 import ak.dev.khi_archive_platform.platform.exceptions.PersonValidationException;
 import ak.dev.khi_archive_platform.platform.service.person.PersonService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -20,6 +23,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,14 +38,79 @@ public class PersonAPI {
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
+    /**
+     * List active person records with optional filter + sort.
+     *
+     * Sort:
+     *   sortBy        — fullName | createdAt | updatedAt | dateOfBirth | dateOfDeath
+     *                   (synonyms accepted: name/alpha, added/dateAdded,
+     *                    modified/dateModified, dob, dod)
+     *   sortDirection — asc | desc (default asc)
+     *
+     * Filter:
+     *   gender             — MALE | FEMALE
+     *   personType         — repeat the param or comma-separate; matches Person.personType
+     *   personTypeMatch    — any (default) | all
+     *   region             — case-insensitive contains match
+     *   dobFrom / dobTo    — ISO-8601 LocalDate, inclusive range over dateOfBirth
+     *   dodFrom / dodTo    — ISO-8601 LocalDate, inclusive range over dateOfDeath
+     *   placeOfBirth       — case-insensitive contains match
+     *   placeOfDeath       — case-insensitive contains match
+     *   tags               — repeat param or comma-separate; matches Person.tag
+     *   tagMatch           — any (default) | all
+     *   keywords           — repeat param or comma-separate; matches Person.keywords
+     *   keywordMatch       — any (default) | all
+     *   createdFrom / To   — ISO-8601 Instant, inclusive range over createdAt
+     *   updatedFrom / To   — ISO-8601 Instant, inclusive range over updatedAt
+     *
+     * With no filter params this returns the cached active list directly (fastest path);
+     * with filter params it applies them in-memory over the same cached list.
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('person:read')")
     public ResponseEntity<Page<PersonResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "sortDirection", required = false) String sortDirection,
+            @RequestParam(value = "gender", required = false) Gender gender,
+            @RequestParam(value = "personType", required = false) List<String> personType,
+            @RequestParam(value = "personTypeMatch", required = false) String personTypeMatch,
+            @RequestParam(value = "region", required = false) String region,
+            @RequestParam(value = "dobFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dobFrom,
+            @RequestParam(value = "dobTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dobTo,
+            @RequestParam(value = "dodFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dodFrom,
+            @RequestParam(value = "dodTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dodTo,
+            @RequestParam(value = "placeOfBirth", required = false) String placeOfBirth,
+            @RequestParam(value = "placeOfDeath", required = false) String placeOfDeath,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "tagMatch", required = false) String tagMatch,
+            @RequestParam(value = "keywords", required = false) List<String> keywords,
+            @RequestParam(value = "keywordMatch", required = false) String keywordMatch,
+            @RequestParam(value = "createdFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
+            @RequestParam(value = "createdTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
+            @RequestParam(value = "updatedFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedFrom,
+            @RequestParam(value = "updatedTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedTo,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(personService.getAll(pageable, auth, request));
+        PersonFilterParams params = new PersonFilterParams(
+                sortBy, sortDirection,
+                gender, personType, personTypeMatch,
+                region,
+                dobFrom, dobTo, dodFrom, dodTo,
+                placeOfBirth, placeOfDeath,
+                tags, tagMatch,
+                keywords, keywordMatch,
+                createdFrom, createdTo, updatedFrom, updatedTo);
+        return ResponseEntity.ok(personService.getAll(pageable, params, auth, request));
     }
 
     /**

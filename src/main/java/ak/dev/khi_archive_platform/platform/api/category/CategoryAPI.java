@@ -1,6 +1,7 @@
 package ak.dev.khi_archive_platform.platform.api.category;
 
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.category.CategoryFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.service.category.CategoryService;
@@ -10,11 +11,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 
 @RestController
@@ -24,14 +27,48 @@ public class CategoryAPI {
 
     private final CategoryService categoryService;
 
+    /**
+     * List active categories with optional filter + sort.
+     *
+     * Sort:
+     *   sortBy        — name | createdAt | updatedAt
+     *                   (synonyms accepted: alpha/alphabetical, added/dateAdded, modified/dateModified)
+     *   sortDirection — asc | desc (default asc)
+     *
+     * Filter:
+     *   createdFrom / createdTo — ISO-8601 instants, inclusive range over createdAt
+     *   updatedFrom / updatedTo — ISO-8601 instants, inclusive range over updatedAt
+     *   tags                    — repeat the param or comma-separate; matches Category.keywords
+     *   tagMatch                — any (default) | all
+     *
+     * With no filter params this returns the cached active list directly (fastest path);
+     * with filter params it applies them in-memory over the same cached list.
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('category:read')")
     public ResponseEntity<Page<CategoryResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "sortDirection", required = false) String sortDirection,
+            @RequestParam(value = "createdFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
+            @RequestParam(value = "createdTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
+            @RequestParam(value = "updatedFrom", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedFrom,
+            @RequestParam(value = "updatedTo", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedTo,
+            @RequestParam(value = "tags", required = false) List<String> tags,
+            @RequestParam(value = "tagMatch", required = false) String tagMatch,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(categoryService.getAll(pageable, auth, request));
+        CategoryFilterParams params = new CategoryFilterParams(
+                sortBy, sortDirection,
+                createdFrom, createdTo,
+                updatedFrom, updatedTo,
+                tags, tagMatch);
+        return ResponseEntity.ok(categoryService.getAll(pageable, params, auth, request));
     }
 
     /**

@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.api.video;
 
 import ak.dev.khi_archive_platform.platform.dto.video.VideoBulkCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.video.VideoFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.exceptions.VideoValidationException;
@@ -34,14 +35,30 @@ public class VideoAPI {
     private final ObjectMapper objectMapper;
     private final Validator validator;
 
+    /**
+     * List active video records with optional filter + sort.
+     *
+     * Filter params are bound from query string into {@link VideoFilterParams}
+     * (Spring's @ModelAttribute style). See that class for the full catalog
+     * of supported fields. With no params, returns the cached active list
+     * directly — fastest path, identical behavior to before.
+     *
+     * Examples:
+     *   GET /api/video?videoCodec=H.264&sortBy=originalTitle&sortDirection=asc
+     *   GET /api/video?language=Kurdish&sortBy=dateCreated&sortDirection=desc
+     *   GET /api/video?tags=interview,1990s&tagMatch=any&versionNumberMin=1
+     *   GET /api/video?location=Sulaimani&dateCreatedFrom=1980-01-01T00:00:00Z&dateCreatedTo=2000-12-31T23:59:59Z
+     *   GET /api/video?subject=festival&subject=concert&subjectMatch=all
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('video:read')")
     public ResponseEntity<Page<VideoResponseDTO>> getAll(
             @PageableDefault(size = 100) Pageable pageable,
+            @ModelAttribute VideoFilterParams filter,
             Authentication auth,
             HttpServletRequest request
     ) {
-        return ResponseEntity.ok(videoService.getAll(pageable, auth, request));
+        return ResponseEntity.ok(videoService.getAll(pageable, filter, auth, request));
     }
 
     /**

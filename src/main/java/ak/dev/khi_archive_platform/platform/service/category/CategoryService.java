@@ -1,6 +1,7 @@
 package ak.dev.khi_archive_platform.platform.service.category;
 
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.category.CategoryFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.CategoryAuditAction;
@@ -111,18 +112,49 @@ public class CategoryService {
     /**
      * Fast path: served from Redis on cache hit; on miss, single JOIN FETCH query
      * loads categories + keywords without N+1, maps to DTOs, caches for 10 min.
+     *
+     * Filter + sort (date range, tags, alpha/created/updated) is applied in-memory
+     * over the cached list — O(N) over a small set, no DB round-trip. When no
+     * filter params are supplied this collapses to the original cached pass-through.
+     *
      * Audit is always recorded (cache only fronts the read, not the audit).
      */
     @Transactional(readOnly = true)
-    public Page<CategoryResponseDTO> getAll(Pageable pageable, Authentication authentication, HttpServletRequest request) {
+    public Page<CategoryResponseDTO> getAll(Pageable pageable,
+                                            CategoryFilterParams filterParams,
+                                            Authentication authentication,
+                                            HttpServletRequest request) {
+        CategoryFilterParams params = filterParams == null ? CategoryFilterParams.EMPTY : filterParams;
         List<CategoryResponseDTO> all = readCache.getAllActive();
-        Page<CategoryResponseDTO> page = PaginationSupport.sliceList(all, pageable);
+        List<CategoryResponseDTO> view = CategoryFilterSupport.applyFiltersAndSort(all, params);
+        Page<CategoryResponseDTO> page = PaginationSupport.sliceList(view, pageable);
         auditService.record(null, CategoryAuditAction.LIST, authentication, request,
                 "Listed active categories (page=" + page.getNumber()
                         + " size=" + page.getSize()
                         + " returned=" + page.getNumberOfElements()
-                        + " total=" + page.getTotalElements() + ")");
+                        + " total=" + page.getTotalElements()
+                        + describeFilters(params) + ")");
         return page;
+    }
+
+    private static String describeFilters(CategoryFilterParams p) {
+        if (p == null || p.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        if (p.sortBy() != null && !p.sortBy().isBlank()) {
+            sb.append(" sortBy=").append(p.sortBy());
+            if (p.sortDirection() != null && !p.sortDirection().isBlank()) {
+                sb.append(" dir=").append(p.sortDirection());
+            }
+        }
+        if (p.createdFrom() != null) sb.append(" createdFrom=").append(p.createdFrom());
+        if (p.createdTo() != null) sb.append(" createdTo=").append(p.createdTo());
+        if (p.updatedFrom() != null) sb.append(" updatedFrom=").append(p.updatedFrom());
+        if (p.updatedTo() != null) sb.append(" updatedTo=").append(p.updatedTo());
+        if (p.tags() != null && !p.tags().isEmpty()) {
+            sb.append(" tags=").append(p.tags())
+                    .append(" tagMatch=").append(p.tagMatch() == null ? "any" : p.tagMatch());
+        }
+        return sb.toString();
     }
 
     private static final double SEARCH_SIMILARITY_THRESHOLD = 0.3;
