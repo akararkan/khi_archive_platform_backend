@@ -66,6 +66,12 @@ public class SecurityConfig {
                                 "/api/auth/reset-password"
                         ).permitAll()
 
+                        // ── Public guest browse/search (no token required) ────────
+                        // Read-only API; the controllers only define GET handlers.
+                        // Permit every method so anonymous browsers (and CORS
+                        // preflights) never get blocked here.
+                        .requestMatchers("/api/guest/**").permitAll()
+
                         // ── Everything under /api/** requires a valid token ───────
                         // Fine-grained role/permission checks live on the
                         // controller methods via @PreAuthorize.

@@ -161,7 +161,6 @@ public class Text {
     private String audience;
 
     // ─── Archival ────────────────────────────────────────────────────────────────
-
     @Column(name = "accrual_method")
     private String accrualMethod;
 

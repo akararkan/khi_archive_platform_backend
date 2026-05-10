@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +42,10 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     /** Active projects (not in trash) for the given person — used to cascade-trash on Person delete. */
     List<Project> findAllByPersonAndRemovedAtIsNull(Person person);
 
+    /** Active projects across a batch of persons — drives the unified guest /results scope expansion. */
+    @EntityGraph(attributePaths = {"categories", "person"})
+    List<Project> findAllByPersonInAndRemovedAtIsNull(Collection<Person> persons);
+
     /** Trashed projects for the given person — used to cascade-restore on Person restore. */
     List<Project> findAllByPersonAndRemovedAtIsNotNull(Person person);
 
@@ -57,4 +62,58 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     long countByPerson(Person person);
 
     long countByPersonIsNull();
+
+    /** Counts active projects for the given person — used by guest person detail. */
+    long countByPersonAndRemovedAtIsNull(Person person);
+
+    /** Counts active projects in the given category — used by guest category detail. */
+    @Query("SELECT COUNT(DISTINCT p) FROM Project p JOIN p.categories c WHERE c = :category AND p.removedAt IS NULL")
+    long countActiveByCategory(@Param("category") Category category);
+
+    /**
+     * Typo-tolerant search across project name, code, description, tags, and
+     * keywords. Substring (LOWER LIKE) plus pg_trgm similarity, ranked by best
+     * score. Mirrors {@code CategoryRepository.searchByText}.
+     */
+    @Query(value = """
+            SELECT p.* FROM projects p
+            WHERE p.removed_at IS NULL
+              AND (
+                    LOWER(p.project_name) LIKE LOWER(CONCAT('%', :q, '%'))
+                 OR LOWER(p.project_code) LIKE LOWER(CONCAT('%', :q, '%'))
+                 OR LOWER(COALESCE(p.description, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                 OR EXISTS (
+                        SELECT 1 FROM project_tags t
+                         WHERE t.project_id = p.id
+                           AND LOWER(t.tag) LIKE LOWER(CONCAT('%', :q, '%'))
+                    )
+                 OR EXISTS (
+                        SELECT 1 FROM project_keywords k
+                         WHERE k.project_id = p.id
+                           AND LOWER(k.keyword) LIKE LOWER(CONCAT('%', :q, '%'))
+                    )
+                 OR similarity(LOWER(p.project_name), LOWER(:q)) > :threshold
+                 OR EXISTS (
+                        SELECT 1 FROM project_tags t
+                         WHERE t.project_id = p.id
+                           AND similarity(LOWER(t.tag), LOWER(:q)) > :threshold
+                    )
+                 OR EXISTS (
+                        SELECT 1 FROM project_keywords k
+                         WHERE k.project_id = p.id
+                           AND similarity(LOWER(k.keyword), LOWER(:q)) > :threshold
+                    )
+              )
+            ORDER BY
+                GREATEST(
+                    similarity(LOWER(p.project_name), LOWER(:q)),
+                    COALESCE((SELECT MAX(similarity(LOWER(t.tag),     LOWER(:q))) FROM project_tags     t WHERE t.project_id = p.id), 0),
+                    COALESCE((SELECT MAX(similarity(LOWER(k.keyword), LOWER(:q))) FROM project_keywords k WHERE k.project_id = p.id), 0)
+                ) DESC,
+                p.project_name ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Project> searchByText(@Param("q") String query,
+                               @Param("threshold") double threshold,
+                               @Param("limit") int limit);
 }

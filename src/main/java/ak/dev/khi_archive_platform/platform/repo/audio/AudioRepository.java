@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,6 +52,15 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
 
     /** Loads every audio for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Audio> findAllByProject(Project project);
+
+    /** Active audios in a project — guest browse path skips trashed rows. */
+    List<Audio> findAllByProjectAndRemovedAtIsNull(Project project);
+
+    /** Active audios across a batch of projects — drives the unified guest /results scope expansion. */
+    List<Audio> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
+
+    /** Active count for the per-project media-counts badge on guest pages. */
+    long countByProjectAndRemovedAtIsNull(Project project);
 
     long countByProjectAndAudioVersionAndVersionNumber(Project project, String audioVersion, Integer versionNumber);
 

@@ -42,6 +42,24 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
     private final JwtCookieService jwtCookieService;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Public guest endpoints under {@code /api/guest/**} are fully token-free —
+     * skipping the filter avoids parsing stale cookies, hitting the user table,
+     * and returning 401/403 to anonymous browsers. Auth endpoints are also
+     * exempt since they issue tokens rather than consume them.
+     */
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) return false;
+        return uri.startsWith("/api/guest/")
+                || uri.equals("/api/auth/login")
+                || uri.equals("/api/auth/register")
+                || uri.equals("/api/auth/register-with-image")
+                || uri.equals("/api/auth/reset-token")
+                || uri.equals("/api/auth/reset-password");
+    }
+
     @Override
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,

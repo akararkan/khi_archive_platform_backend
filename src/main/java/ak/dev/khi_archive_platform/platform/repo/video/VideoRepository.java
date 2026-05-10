@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,6 +52,15 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
 
     /** Loads every video for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Video> findAllByProject(Project project);
+
+    /** Active videos in a project — guest browse path skips trashed rows. */
+    List<Video> findAllByProjectAndRemovedAtIsNull(Project project);
+
+    /** Active videos across a batch of projects — drives the unified guest /results scope expansion. */
+    List<Video> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
+
+    /** Active count for the per-project media-counts badge on guest pages. */
+    long countByProjectAndRemovedAtIsNull(Project project);
 
     long countByProjectAndVideoVersionAndVersionNumber(Project project, String videoVersion, Integer versionNumber);
 

@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,6 +52,15 @@ public interface TextRepository extends JpaRepository<Text, Long> {
 
     /** Loads every text for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Text> findAllByProject(Project project);
+
+    /** Active texts in a project — guest browse path skips trashed rows. */
+    List<Text> findAllByProjectAndRemovedAtIsNull(Project project);
+
+    /** Active texts across a batch of projects — drives the unified guest /results scope expansion. */
+    List<Text> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
+
+    /** Active count for the per-project media-counts badge on guest pages. */
+    long countByProjectAndRemovedAtIsNull(Project project);
 
     long countByProjectAndTextVersionAndVersionNumber(Project project, String textVersion, Integer versionNumber);
 
