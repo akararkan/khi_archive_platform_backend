@@ -129,6 +129,13 @@ app:
     allow-credentials: true
     max-age: 3600
 
+  # Loads seed-data/*.json on boot via SeedDataLoader. Idempotent — skips rows
+  # whose business code already exists, so leaving this on just adds a no-op
+  # pass on subsequent restarts.
+  seed:
+    load: ${APP_SEED_LOAD:true}
+    dir: ${APP_SEED_DIR:./seed-data}
+
 # ===============================
 # AWS S3
 # ===============================
@@ -185,3 +192,5 @@ logging:
     org.springframework.data.redis: DEBUG
     org.springframework.cache: DEBUG
     org.springframework.jdbc: DEBUG
+
+kind: Application

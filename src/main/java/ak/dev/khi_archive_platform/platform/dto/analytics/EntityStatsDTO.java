@@ -14,9 +14,9 @@ import java.io.Serializable;
  * the corresponding audit-log rows. "deleted" combines DELETE and the legacy
  * REMOVE action so old audit rows still surface correctly.
  *
- * <p>"viewed" is READ; "searched" is SEARCH; "listed" is LIST. "total" is
- * every audit row regardless of action — the simplest "did this user touch
- * this resource" metric.
+ * <p>"viewed" is READ; "searched" is SEARCH. LIST actions are intentionally
+ * excluded from analytics — they're page-load noise, not productive work.
+ * "total" sums every audit row in scope.
  *
  * <p>"distinctEntities" is COUNT(DISTINCT entity_id) — how many unique
  * resources the user actually interacted with (vs. raw action count).
@@ -33,7 +33,6 @@ public class EntityStatsDTO implements Serializable {
     private long purged;
     private long viewed;
     private long searched;
-    private long listed;
     private long total;
     private long distinctEntities;
 }

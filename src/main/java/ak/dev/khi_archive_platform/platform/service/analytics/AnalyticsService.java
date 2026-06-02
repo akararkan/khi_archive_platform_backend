@@ -2,13 +2,18 @@ package ak.dev.khi_archive_platform.platform.service.analytics;
 
 import ak.dev.khi_archive_platform.platform.dto.analytics.ActionStatsDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.AnalyticsFilter;
+import ak.dev.khi_archive_platform.platform.dto.analytics.CorrectionStatsDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.DailyBucketDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.EntityStatsDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.FeedPageDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.MonthlyBucketDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.RecentActivityItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.TeamOverviewDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserActivityDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserSummaryDTO;
+import ak.dev.khi_archive_platform.platform.repo.correction.GuestCorrectionRepository;
+import ak.dev.khi_archive_platform.platform.enums.CorrectionMediaType;
+import ak.dev.khi_archive_platform.platform.enums.CorrectionStatus;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.Query;
@@ -60,17 +65,38 @@ import java.util.TreeSet;
 public class AnalyticsService {
 
     public static final List<String> ENTITY_KEYS = List.of(
-            "audio", "video", "image", "text", "project", "category", "person"
+            "audio", "video", "image", "text", "project", "category", "person", "maqam"
     );
 
     /** Whitelist of action names accepted by the {@code actions=} filter. The
      *  CTE casts the per-table enum to text and compares as strings, so we must
      *  guard the input. Project's enum lacks SEARCH; the others define it.
+     *  LIST is intentionally excluded — page-load noise, not productive work.
      *  Any unknown value is silently dropped (filter degrades to "all"). */
     private static final Set<String> ACTION_KEYS = Set.of(
-            "CREATE", "READ", "LIST", "SEARCH", "UPDATE", "DELETE",
-            "REMOVE", "RESTORE", "PURGE"
+            "CREATE", "READ", "SEARCH", "UPDATE", "DELETE",
+            "REMOVE", "RESTORE", "PURGE",
+            // Maqam-only actions. Harmless on other entities (their action
+            // enums don't define them, so the filter degrades to zero matches).
+            "TEACHER_ASSIGNED", "TEACHER_REMOVED",
+            "VOTE_CAST", "VOTE_UPDATED", "VOTE_DELETED",
+            "STREAM", "LISTEN_STARTED", "LISTEN_PROGRESS", "LISTEN_ENDED"
     );
+
+    /** Selectable choices surfaced to the admin UI via the action catalog
+     *  endpoint. Order is the natural CRUD progression: Create, Read (view),
+     *  Update, Delete, Search. RESTORE/PURGE are admin trash actions and
+     *  remain filterable through {@code ACTION_KEYS} but are not in the
+     *  default catalog. */
+    public static final List<String> SELECTABLE_ACTIONS = List.of(
+            "CREATE", "READ", "UPDATE", "DELETE", "SEARCH"
+    );
+
+    /** SQL fragment that excludes LIST rows from every aggregate. Inlined into
+     *  every WHERE clause so {@code total} stays consistent with the per-action
+     *  counts (which never count LIST). Filtered requests still respect the
+     *  {@code actions=} filter on top of this. */
+    private static final String EXCLUDE_LIST_PREDICATE = " AND action <> 'LIST' ";
 
     /**
      * UNION ALL fragment with one branch per audit-log table. Every branch
@@ -135,11 +161,21 @@ public class AnalyticsService {
                        request_method, request_path,
                        occurred_at, details
                   FROM person_audit_logs
+                UNION ALL
+                SELECT 'maqam'    , action::text, maqam_id   , maqam_code   ,
+                       actor_user_id, actor_username, actor_display_name,
+                       actor_authorities, actor_permissions,
+                       device_info, ip_address, session_id,
+                       request_method, request_path,
+                       occurred_at, details
+                  FROM maqam_audit_logs
             )
             """;
 
     private static final int DEFAULT_DAYS = 30;
     private static final int MAX_DAYS = 365;
+
+    private final GuestCorrectionRepository correctionRepository;
 
     @PersistenceContext
     private EntityManager em;
@@ -164,6 +200,7 @@ public class AnalyticsService {
 
         Map<String, EntityStatsDTO> byEntity = loadEntityStats(f, w);
         List<DailyBucketDTO> daily = loadDailyBuckets(f, w);
+        List<MonthlyBucketDTO> monthly = loadMonthlyBuckets(f, w);
         FeedPageDTO recent = loadRecentFeed(f, w, size, page, sort);
         long total = byEntity.values().stream().mapToLong(EntityStatsDTO::getTotal).sum();
 
@@ -182,6 +219,7 @@ public class AnalyticsService {
                 .totalActions(total)
                 .byEntity(byEntity)
                 .daily(daily)
+                .monthly(monthly)
                 .recent(recent)
                 .build();
     }
@@ -194,6 +232,7 @@ public class AnalyticsService {
 
         Map<String, EntityStatsDTO> byEntity = loadEntityStats(filter, w);
         List<DailyBucketDTO> daily = loadDailyBuckets(filter, w);
+        List<MonthlyBucketDTO> monthly = loadMonthlyBuckets(filter, w);
         List<UserSummaryDTO> users = loadUserSummaries(filter, w);
         long total = byEntity.values().stream().mapToLong(EntityStatsDTO::getTotal).sum();
 
@@ -210,6 +249,8 @@ public class AnalyticsService {
                 .byEntity(byEntity)
                 .topUsers(top)
                 .daily(daily)
+                .monthly(monthly)
+                .corrections(loadCorrectionStats())
                 .build();
     }
 
@@ -223,6 +264,11 @@ public class AnalyticsService {
                 .toList();
     }
 
+    /** Correction suggestion statistics — always live, all-time totals. */
+    public CorrectionStatsDTO getCorrectionStats() {
+        return loadCorrectionStats();
+    }
+
     /** Per-action breakdown across the (filtered) window. Always live (no cache). */
     public List<ActionStatsDTO> getActionStats(AnalyticsFilter filter) {
         return loadActionStats(filter, window(filter));
@@ -231,6 +277,14 @@ public class AnalyticsService {
     /** Daily buckets, exposed as a standalone endpoint. Always live. */
     public List<DailyBucketDTO> getDaily(AnalyticsFilter filter) {
         return loadDailyBuckets(filter, window(filter));
+    }
+
+    /** Monthly buckets, exposed as a standalone endpoint. Always live.
+     *  Each bucket also carries the distinct-actor count for that month so
+     *  the "monthly statistics of user work" view can plot active-users
+     *  alongside totals. */
+    public List<MonthlyBucketDTO> getMonthly(AnalyticsFilter filter) {
+        return loadMonthlyBuckets(filter, window(filter));
     }
 
     /** Per-entity stats, exposed as a standalone endpoint. Always live. */
@@ -269,7 +323,6 @@ public class AnalyticsService {
                        COUNT(*) FILTER (WHERE action = 'PURGE')                     AS purged,
                        COUNT(*) FILTER (WHERE action = 'READ')                      AS viewed,
                        COUNT(*) FILTER (WHERE action = 'SEARCH')                    AS searched,
-                       COUNT(*) FILTER (WHERE action = 'LIST')                      AS listed,
                        COUNT(DISTINCT entity_id) FILTER (WHERE entity_id IS NOT NULL) AS distinct_entities
                   FROM all_logs
                 """ + where.sql + " GROUP BY entity";
@@ -292,8 +345,7 @@ public class AnalyticsService {
                     .purged(longOf(r[6]))
                     .viewed(longOf(r[7]))
                     .searched(longOf(r[8]))
-                    .listed(longOf(r[9]))
-                    .distinctEntities(longOf(r[10]))
+                    .distinctEntities(longOf(r[9]))
                     .build();
             out.put((String) r[0], stats);
         }
@@ -330,6 +382,54 @@ public class AnalyticsService {
                     .deleted(longOf(r[4]))
                     .restored(longOf(r[5]))
                     .purged(longOf(r[6]))
+                    .build());
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<MonthlyBucketDTO> loadMonthlyBuckets(AnalyticsFilter filter, Window w) {
+        WhereClause where = buildWhere(filter, w, sanitisedEntities(filter));
+
+        String sql = ALL_LOGS_CTE + """
+                SELECT DATE_TRUNC('month', occurred_at)                              AS month,
+                       COUNT(*)                                                      AS total,
+                       COUNT(*) FILTER (WHERE action = 'CREATE')                     AS created,
+                       COUNT(*) FILTER (WHERE action = 'UPDATE')                     AS updated,
+                       COUNT(*) FILTER (WHERE action IN ('DELETE','REMOVE'))         AS deleted,
+                       COUNT(*) FILTER (WHERE action = 'RESTORE')                    AS restored,
+                       COUNT(*) FILTER (WHERE action = 'PURGE')                      AS purged,
+                       COUNT(*) FILTER (WHERE action = 'READ')                       AS viewed,
+                       COUNT(*) FILTER (WHERE action = 'SEARCH')                     AS searched,
+                       COUNT(DISTINCT actor_username) FILTER
+                           (WHERE actor_username IS NOT NULL)                        AS active_users
+                  FROM all_logs
+                """ + where.sql + " GROUP BY month ORDER BY month DESC";
+
+        Query q = em.createNativeQuery(sql);
+        where.bind(q);
+
+        List<MonthlyBucketDTO> out = new ArrayList<>();
+        for (Object row : q.getResultList()) {
+            Object[] r = (Object[]) row;
+            Instant month = instantOf(r[0]);
+            java.time.LocalDate firstOfMonth = month == null
+                    ? null : month.atZone(ZoneOffset.UTC).toLocalDate();
+            String label = firstOfMonth == null ? null
+                    : String.format("%04d-%02d", firstOfMonth.getYear(),
+                            firstOfMonth.getMonthValue());
+            out.add(MonthlyBucketDTO.builder()
+                    .month(firstOfMonth)
+                    .label(label)
+                    .total(longOf(r[1]))
+                    .created(longOf(r[2]))
+                    .updated(longOf(r[3]))
+                    .deleted(longOf(r[4]))
+                    .restored(longOf(r[5]))
+                    .purged(longOf(r[6]))
+                    .viewed(longOf(r[7]))
+                    .searched(longOf(r[8]))
+                    .activeUsers(longOf(r[9]))
                     .build());
         }
         return out;
@@ -453,7 +553,6 @@ public class AnalyticsService {
                            COUNT(*) FILTER (WHERE action = 'RESTORE')             AS restored,
                            COUNT(*) FILTER (WHERE action = 'PURGE')               AS purged,
                            COUNT(*) FILTER (WHERE action = 'READ')                AS viewed,
-                           COUNT(*) FILTER (WHERE action = 'LIST')                AS listed,
                            COUNT(*) FILTER (WHERE action = 'SEARCH')              AS searched,
                            MIN(occurred_at)                                       AS first_seen,
                            MAX(occurred_at)                                       AS last_seen
@@ -474,7 +573,7 @@ public class AnalyticsService {
                 SELECT g.actor_username, g.display_name,
                        l.actor_user_id, l.actor_authorities, l.actor_permissions,
                        g.total, g.created, g.updated, g.deleted,
-                       g.restored, g.purged, g.viewed, g.listed, g.searched,
+                       g.restored, g.purged, g.viewed, g.searched,
                        g.first_seen, g.last_seen
                   FROM agg g
              LEFT JOIN latest l ON l.actor_username = g.actor_username
@@ -499,10 +598,9 @@ public class AnalyticsService {
                     .restoreCount(longOf(r[9]))
                     .purgeCount(longOf(r[10]))
                     .readCount(longOf(r[11]))
-                    .listCount(longOf(r[12]))
-                    .searchCount(longOf(r[13]))
-                    .firstSeen(instantOf(r[14]))
-                    .lastSeen(instantOf(r[15]))
+                    .searchCount(longOf(r[12]))
+                    .firstSeen(instantOf(r[13]))
+                    .lastSeen(instantOf(r[14]))
                     .build());
         }
         return out;
@@ -536,6 +634,30 @@ public class AnalyticsService {
         where.bind(q);
         List<Object[]> rows = q.getResultList();
         return rows.isEmpty() ? new Object[]{null, null, null, null, null, null} : rows.get(0);
+    }
+
+    // ─── Correction stats ────────────────────────────────────────────────────
+
+    private CorrectionStatsDTO loadCorrectionStats() {
+        long pending   = correctionRepository.countByStatusAndRemovedAtIsNull(CorrectionStatus.PENDING);
+        long forwarded = correctionRepository.countByStatusAndRemovedAtIsNull(CorrectionStatus.FORWARDED);
+        long resolved  = correctionRepository.countByStatusAndRemovedAtIsNull(CorrectionStatus.RESOLVED);
+        long rejected  = correctionRepository.countByStatusAndRemovedAtIsNull(CorrectionStatus.REJECTED);
+        long total     = pending + forwarded + resolved + rejected;
+
+        Map<String, Long> byMediaType = new LinkedHashMap<>();
+        for (CorrectionMediaType mt : CorrectionMediaType.values()) {
+            byMediaType.put(mt.name(), correctionRepository.countByMediaTypeAndRemovedAtIsNull(mt));
+        }
+
+        return CorrectionStatsDTO.builder()
+                .total(total)
+                .pending(pending)
+                .forwarded(forwarded)
+                .resolved(resolved)
+                .rejected(rejected)
+                .byMediaType(byMediaType)
+                .build();
     }
 
     // ─── Filter helpers ─────────────────────────────────────────────────────
@@ -616,6 +738,10 @@ public class AnalyticsService {
     private WhereClause buildWhere(AnalyticsFilter filter, Window w, Set<String> entities) {
         Set<String> actions = sanitisedActions(filter);
         StringBuilder sb = new StringBuilder(" WHERE occurred_at >= :from AND occurred_at <= :to ");
+        // LIST is never counted in analytics — every aggregate, total, and feed
+        // page excludes it. Per-action filter on top of this still works
+        // because the whitelist also drops LIST.
+        sb.append(EXCLUDE_LIST_PREDICATE);
 
         if (!entities.isEmpty() && entities.size() < ENTITY_KEYS.size()) {
             sb.append(" AND entity IN (:entities) ");

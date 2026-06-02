@@ -35,7 +35,6 @@ public class UserSummaryDTO implements Serializable {
     private long restoreCount;
     private long purgeCount;
     private long readCount;
-    private long listCount;
     private long searchCount;
 
     private Instant firstSeen;

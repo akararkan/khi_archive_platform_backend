@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import ak.dev.khi_archive_platform.platform.dto.analytics.CorrectionStatsDTO;
+
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.List;
@@ -26,4 +28,10 @@ public class TeamOverviewDTO implements Serializable {
     private Map<String, EntityStatsDTO> byEntity;
     private List<UserSummaryDTO> topUsers;
     private List<DailyBucketDTO> daily;
+    /** One bucket per calendar month in the window, ordered newest first.
+     *  Months with zero activity are omitted. */
+    private List<MonthlyBucketDTO> monthly;
+
+    /** Guest correction suggestion totals across all time. Null when not loaded. */
+    private CorrectionStatsDTO corrections;
 }

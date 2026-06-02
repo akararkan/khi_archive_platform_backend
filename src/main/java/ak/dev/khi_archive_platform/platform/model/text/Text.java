@@ -249,6 +249,12 @@ public class Text {
 
     // ─── Audit ───────────────────────────────────────────────────────────────────
 
+    /** When false this record is hidden from all guest/public APIs.
+     *  Employees and admins always see it. Default: true (publicly visible). */
+    @Column(name = "is_public", nullable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT TRUE")
+    @Builder.Default
+    private Boolean isPublic = true;
+
     @Column(name = "created_at")
     private Instant createdAt;
 

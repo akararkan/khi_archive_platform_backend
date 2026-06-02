@@ -32,6 +32,12 @@ public class GuestImageDTO implements Serializable {
     /** Portrait of the project's owning person — drives avatar in card grids. */
     private String personMediaPortrait;
 
+    /** Linked person (via project). Null for untitled projects. */
+    private GuestPersonSummaryDTO person;
+
+    /** Categories of the owning project — drives the Categories row on detail pages. */
+    private List<GuestCategorySummaryDTO> categories;
+
     private String originalTitle;
     private String alternativeTitle;
     private String titleInCentralKurdish;

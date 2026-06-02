@@ -5,6 +5,7 @@ import ak.dev.khi_archive_platform.platform.dto.analytics.AnalyticsFilter;
 import ak.dev.khi_archive_platform.platform.dto.analytics.DailyBucketDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.EntityStatsDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.FeedPageDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.MonthlyBucketDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.TeamOverviewDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserActivityDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserSummaryDTO;
@@ -42,7 +43,10 @@ import java.util.Set;
  *   <li>{@code days} — window length (1-365, default 30) when {@code from/to} absent</li>
  *   <li>{@code from} / {@code to} — explicit ISO-8601 instants</li>
  *   <li>{@code entities} — CSV: audio,video,image,text,project,category,person</li>
- *   <li>{@code actions} — CSV: CREATE,READ,LIST,SEARCH,UPDATE,DELETE,REMOVE,RESTORE,PURGE</li>
+ *   <li>{@code actions} — CSV: CREATE,READ,SEARCH,UPDATE,DELETE,REMOVE,RESTORE,PURGE
+ *       (LIST is intentionally never counted — page-load noise, not work).
+ *       Use {@code GET /api/analytics/actions/catalog} for the UI-facing
+ *       short list (CREATE/READ/UPDATE/DELETE/SEARCH).</li>
  *   <li>{@code actor} — exact username</li>
  *   <li>{@code actorPattern} — substring on username/display name (case-insensitive)</li>
  *   <li>{@code entityCode} — exact entity code</li>
@@ -59,6 +63,9 @@ public class AnalyticsAPI {
     private static final int DEFAULT_TOP = 10;
     private static final int MAX_TOP = 100;
     private static final int DEFAULT_PAGE_SIZE = 50;
+    /** The /monthly endpoint defaults to a year so the UI shows ~12 buckets
+     *  by default. The universal {@code days} param still wins if supplied. */
+    private static final int DEFAULT_MONTHLY_WINDOW_DAYS = 365;
 
     private final AnalyticsService analyticsService;
     private final AnalyticsAuditService auditService;
@@ -228,6 +235,50 @@ public class AnalyticsAPI {
         List<DailyBucketDTO> body = analyticsService.getDaily(filter);
         auditService.record(AnalyticsAuditAction.VIEW_DAILY, filter.toCacheKey(), auth, request,
                 "Daily breakdown (rows=" + body.size() + ")");
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Per-month buckets — the "monthly statistics of user work" view.
+     * Defaults to a 365-day window (covering ~12 months) when neither
+     * {@code days} nor {@code from/to} is supplied so the chart isn't
+     * empty out of the box.
+     */
+    @GetMapping("/monthly")
+    public ResponseEntity<List<MonthlyBucketDTO>> monthly(
+            @RequestParam(value = "days",        required = false) Integer days,
+            @RequestParam(value = "from",        required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(value = "to",          required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(value = "entities",    required = false) String entities,
+            @RequestParam(value = "actions",     required = false) String actions,
+            @RequestParam(value = "actor",       required = false) String actor,
+            @RequestParam(value = "actorPattern",required = false) String actorPattern,
+            @RequestParam(value = "entityCode",  required = false) String entityCode,
+            @RequestParam(value = "q",           required = false) String q,
+            Authentication auth,
+            HttpServletRequest request) {
+        Integer effectiveDays = days;
+        if (effectiveDays == null && from == null && to == null) {
+            effectiveDays = DEFAULT_MONTHLY_WINDOW_DAYS;
+        }
+        AnalyticsFilter filter = build(effectiveDays, from, to, entities, actions, actor, actorPattern, entityCode, q);
+        List<MonthlyBucketDTO> body = analyticsService.getMonthly(filter);
+        auditService.record(AnalyticsAuditAction.VIEW_MONTHLY, filter.toCacheKey(), auth, request,
+                "Monthly breakdown (rows=" + body.size() + ")");
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Catalog of the actions an admin can choose to filter analytics by.
+     * Drives the "choose the actions to see" checkbox list on the UI:
+     * CREATE / READ / UPDATE / DELETE / SEARCH (LIST is never offered).
+     * Returned values can be sent back as the {@code actions=} CSV.
+     */
+    @GetMapping("/actions/catalog")
+    public ResponseEntity<List<String>> actionCatalog(Authentication auth, HttpServletRequest request) {
+        List<String> body = AnalyticsService.SELECTABLE_ACTIONS;
+        auditService.record(AnalyticsAuditAction.VIEW_ACTION_CATALOG, "catalog",
+                auth, request, "Action catalog (count=" + body.size() + ")");
         return ResponseEntity.ok(body);
     }
 

@@ -41,6 +41,14 @@ final class GuestMapper {
         return (in == null || in.isEmpty()) ? List.of() : new ArrayList<>(in);
     }
 
+    /** Maps a project's category list into summary stubs, materializing the lazy collection. */
+    private static List<GuestCategorySummaryDTO> projectCategories(Project p) {
+        if (p == null) return List.of();
+        List<Category> cats = p.getCategories();
+        if (cats == null || cats.isEmpty()) return List.of();
+        return cats.stream().map(GuestMapper::toCategorySummary).toList();
+    }
+
     // ─── Project ──────────────────────────────────────────────────────────────────
 
     static GuestProjectDTO toProject(Project p, GuestProjectDTO.MediaCounts counts) {
@@ -143,6 +151,8 @@ final class GuestMapper {
                 .projectCode(project == null ? null : project.getProjectCode())
                 .projectName(project == null ? null : project.getProjectName())
                 .personMediaPortrait(project == null || project.getPerson() == null ? null : project.getPerson().getMediaPortrait())
+                .person(project == null ? null : toPersonSummary(project.getPerson()))
+                .categories(projectCategories(project))
                 .originTitle(a.getOriginTitle())
                 .alterTitle(a.getAlterTitle())
                 .centralKurdishTitle(a.getCentral_kurdish_title())
@@ -194,6 +204,8 @@ final class GuestMapper {
                 .projectCode(project == null ? null : project.getProjectCode())
                 .projectName(project == null ? null : project.getProjectName())
                 .personMediaPortrait(project == null || project.getPerson() == null ? null : project.getPerson().getMediaPortrait())
+                .person(project == null ? null : toPersonSummary(project.getPerson()))
+                .categories(projectCategories(project))
                 .originalTitle(v.getOriginalTitle())
                 .alternativeTitle(v.getAlternativeTitle())
                 .titleInCentralKurdish(v.getTitleInCentralKurdish())
@@ -242,6 +254,8 @@ final class GuestMapper {
                 .projectCode(project == null ? null : project.getProjectCode())
                 .projectName(project == null ? null : project.getProjectName())
                 .personMediaPortrait(project == null || project.getPerson() == null ? null : project.getPerson().getMediaPortrait())
+                .person(project == null ? null : toPersonSummary(project.getPerson()))
+                .categories(projectCategories(project))
                 .originalTitle(t.getOriginalTitle())
                 .alternativeTitle(t.getAlternativeTitle())
                 .titleInCentralKurdish(t.getTitleInCentralKurdish())
@@ -292,6 +306,8 @@ final class GuestMapper {
                 .projectCode(project == null ? null : project.getProjectCode())
                 .projectName(project == null ? null : project.getProjectName())
                 .personMediaPortrait(project == null || project.getPerson() == null ? null : project.getPerson().getMediaPortrait())
+                .person(project == null ? null : toPersonSummary(project.getPerson()))
+                .categories(projectCategories(project))
                 .originalTitle(i.getOriginalTitle())
                 .alternativeTitle(i.getAlternativeTitle())
                 .titleInCentralKurdish(i.getTitleInCentralKurdish())

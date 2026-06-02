@@ -12,5 +12,7 @@ public enum AnalyticsAuditAction {
     VIEW_FEED,
     VIEW_ACTIONS,
     VIEW_DAILY,
-    VIEW_ENTITY_STATS
+    VIEW_MONTHLY,
+    VIEW_ENTITY_STATS,
+    VIEW_ACTION_CATALOG
 }

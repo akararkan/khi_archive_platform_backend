@@ -50,6 +50,14 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
+    @ExceptionHandler(UserWarningNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleWarningNotFound(
+            UserWarningNotFoundException ex,
+            HttpServletRequest request
+    ) {
+        return build(HttpStatus.NOT_FOUND, "WARNING_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
     @ExceptionHandler({BadCredentialsException.class, AuthenticationException.class})
     public ResponseEntity<ApiErrorResponse> handleAuthenticationFailure(
             RuntimeException ex,

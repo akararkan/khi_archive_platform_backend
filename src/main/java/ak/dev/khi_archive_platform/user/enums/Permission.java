@@ -78,7 +78,49 @@ public enum Permission {
     USER_CREATE("user:create"),
     USER_UPDATE("user:update"),
     USER_REMOVE("user:remove"),
-    USER_DELETE("user:delete");
+    USER_DELETE("user:delete"),
+
+    // ── Warning (admin-only) ────────────────────────────────
+    // Drives /api/admin/warnings endpoints. ADMIN holds all of these via
+    // the role; non-admins never see them unless an admin grants the
+    // specific authority. The recipient does NOT need any warning:* perm
+    // to view or acknowledge their own warnings — that's handled by the
+    // /api/warnings endpoints which are gated on authentication alone.
+    WARNING_READ("warning:read"),
+    WARNING_CREATE("warning:create"),
+    WARNING_UPDATE("warning:update"),
+    WARNING_REMOVE("warning:remove"),
+    WARNING_DELETE("warning:delete"),
+
+    // ── Correction (admin management of guest correction suggestions) ──
+    // Drives /api/admin/corrections endpoints. ADMIN gets all three via
+    // the role. Submission by guests uses isAuthenticated() only — no
+    // correction:create permission is required to submit.
+    CORRECTION_READ("correction:read"),
+    CORRECTION_UPDATE("correction:update"),
+    CORRECTION_REMOVE("correction:remove"),
+
+    // ── Maqam (List-of-Maqam song records) ─────────────────────
+    // Five-action CRUD parallels the other media entities. {@code MAQAM_READ}
+    // is held by ADMIN, EMPLOYEE seed, and the TEACHER role baseline. CREATE
+    // and UPDATE are admin/employee only — teachers never edit the song
+    // metadata even on records they vote on. REMOVE/DELETE are admin only
+    // (trash + purge), matching the soft-delete pattern used by audio/video.
+    MAQAM_READ("maqam:read"),
+    MAQAM_CREATE("maqam:create"),
+    MAQAM_UPDATE("maqam:update"),
+    MAQAM_REMOVE("maqam:remove"),
+    MAQAM_DELETE("maqam:delete"),
+
+    // Cast a vote / save a note on a List-of-Maqam record. Held by the
+    // TEACHER role baseline only — employees and admins do not vote (admins
+    // can still manage the teacher roster via {@link #MAQAM_TEACHER_MANAGE}).
+    MAQAM_VOTE("maqam:vote"),
+
+    // Assign / unassign which teachers are on a List-of-Maqam record
+    // (min 1, max 3). Held by ADMIN and seeded into the EMPLOYEE default set
+    // so the employee who prepared the record can also pick its teacher panel.
+    MAQAM_TEACHER_MANAGE("maqam:teacher_manage");
 
     private final String permission;
 }

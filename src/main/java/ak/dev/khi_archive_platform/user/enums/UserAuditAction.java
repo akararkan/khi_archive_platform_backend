@@ -14,5 +14,11 @@ public enum UserAuditAction {
     ACTIVATE,
     DEACTIVATE,
     READ,
-    LIST
+    LIST,
+    /** Admin issued a written warning to an employee. */
+    WARNING_SENT,
+    /** Admin retracted a previously-issued warning (soft-delete). */
+    WARNING_REVOKED,
+    /** Recipient confirmed they read a warning. */
+    WARNING_ACKNOWLEDGED
 }

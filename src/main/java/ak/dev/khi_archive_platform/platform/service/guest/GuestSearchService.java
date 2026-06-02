@@ -116,13 +116,17 @@ public class GuestSearchService {
         List<Person> personHits = personRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
         List<Project> scope = resolveProjectScope(norm);
         List<Audio> audioHits = capById(widenAudios(
-                audioRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit);
+                audioRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(a -> Boolean.TRUE.equals(a.getIsPublic())).toList();
         List<Video> videoHits = capById(widenVideos(
-                videoRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit);
+                videoRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(v -> Boolean.TRUE.equals(v.getIsPublic())).toList();
         List<Text> textHits = capById(widenTexts(
-                textRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit);
+                textRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(t -> Boolean.TRUE.equals(t.getIsPublic())).toList();
         List<Image> imageHits = capById(widenImages(
-                imageRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit);
+                imageRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(i -> Boolean.TRUE.equals(i.getIsPublic())).toList();
 
         return GuestGlobalSearchDTO.builder()
                 .query(norm)
@@ -217,19 +221,23 @@ public class GuestSearchService {
         boolean all = type == null || type.isBlank() || "all".equalsIgnoreCase(type);
         if (all || "audio".equalsIgnoreCase(type) || "audios".equalsIgnoreCase(type)) {
             out.put("audios", audioRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().map(GuestMapper::toAudio).toList());
+                    .stream().filter(a -> Boolean.TRUE.equals(a.getIsPublic()))
+                    .map(GuestMapper::toAudio).toList());
         }
         if (all || "video".equalsIgnoreCase(type) || "videos".equalsIgnoreCase(type)) {
             out.put("videos", videoRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().map(GuestMapper::toVideo).toList());
+                    .stream().filter(v -> Boolean.TRUE.equals(v.getIsPublic()))
+                    .map(GuestMapper::toVideo).toList());
         }
         if (all || "text".equalsIgnoreCase(type) || "texts".equalsIgnoreCase(type)) {
             out.put("texts", textRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().map(GuestMapper::toText).toList());
+                    .stream().filter(t -> Boolean.TRUE.equals(t.getIsPublic()))
+                    .map(GuestMapper::toText).toList());
         }
         if (all || "image".equalsIgnoreCase(type) || "images".equalsIgnoreCase(type)) {
             out.put("images", imageRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().map(GuestMapper::toImage).toList());
+                    .stream().filter(i -> Boolean.TRUE.equals(i.getIsPublic()))
+                    .map(GuestMapper::toImage).toList());
         }
         return out;
     }
@@ -383,6 +391,7 @@ public class GuestSearchService {
 
         List<Audio> filtered = new ArrayList<>(source.size());
         for (Audio a : source) {
+            if (!Boolean.TRUE.equals(a.getIsPublic())) continue;
             if (!projectMatches(a.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(a.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(a.getDialect(), wDialect)) continue;
@@ -419,7 +428,9 @@ public class GuestSearchService {
 
     @Transactional(readOnly = true)
     public Optional<GuestAudioDTO> getAudioByCode(String audioCode) {
-        return audioRepository.findByAudioCodeAndRemovedAtIsNull(audioCode).map(GuestMapper::toAudio);
+        return audioRepository.findByAudioCodeAndRemovedAtIsNull(audioCode)
+                .filter(a -> Boolean.TRUE.equals(a.getIsPublic()))
+                .map(GuestMapper::toAudio);
     }
 
     // ─── Videos ───────────────────────────────────────────────────────────────────
@@ -490,6 +501,7 @@ public class GuestSearchService {
 
         List<Video> filtered = new ArrayList<>(source.size());
         for (Video v : source) {
+            if (!Boolean.TRUE.equals(v.getIsPublic())) continue;
             if (!projectMatches(v.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(v.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(v.getDialect(), wDialect)) continue;
@@ -526,7 +538,9 @@ public class GuestSearchService {
 
     @Transactional(readOnly = true)
     public Optional<GuestVideoDTO> getVideoByCode(String videoCode) {
-        return videoRepository.findByVideoCodeAndRemovedAtIsNull(videoCode).map(GuestMapper::toVideo);
+        return videoRepository.findByVideoCodeAndRemovedAtIsNull(videoCode)
+                .filter(v -> Boolean.TRUE.equals(v.getIsPublic()))
+                .map(GuestMapper::toVideo);
     }
 
     // ─── Texts ────────────────────────────────────────────────────────────────────
@@ -595,6 +609,7 @@ public class GuestSearchService {
 
         List<Text> filtered = new ArrayList<>(source.size());
         for (Text t : source) {
+            if (!Boolean.TRUE.equals(t.getIsPublic())) continue;
             if (!projectMatches(t.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(t.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(t.getDialect(), wDialect)) continue;
@@ -630,7 +645,9 @@ public class GuestSearchService {
 
     @Transactional(readOnly = true)
     public Optional<GuestTextDTO> getTextByCode(String textCode) {
-        return textRepository.findByTextCodeAndRemovedAtIsNull(textCode).map(GuestMapper::toText);
+        return textRepository.findByTextCodeAndRemovedAtIsNull(textCode)
+                .filter(t -> Boolean.TRUE.equals(t.getIsPublic()))
+                .map(GuestMapper::toText);
     }
 
     // ─── Images ───────────────────────────────────────────────────────────────────
@@ -693,6 +710,7 @@ public class GuestSearchService {
 
         List<Image> filtered = new ArrayList<>(source.size());
         for (Image i : source) {
+            if (!Boolean.TRUE.equals(i.getIsPublic())) continue;
             if (!projectMatches(i.getProject(), wProject, wCategory, wPerson)) continue;
             if (wEvent != null && !containsLower(i.getEvent(), wEvent)) continue;
             if (wLocation != null && !containsLower(i.getLocation(), wLocation)) continue;
@@ -725,7 +743,9 @@ public class GuestSearchService {
 
     @Transactional(readOnly = true)
     public Optional<GuestImageDTO> getImageByCode(String imageCode) {
-        return imageRepository.findByImageCodeAndRemovedAtIsNull(imageCode).map(GuestMapper::toImage);
+        return imageRepository.findByImageCodeAndRemovedAtIsNull(imageCode)
+                .filter(i -> Boolean.TRUE.equals(i.getIsPublic()))
+                .map(GuestMapper::toImage);
     }
 
     // ─── Unified results (cross-type ranked feed) ────────────────────────────────

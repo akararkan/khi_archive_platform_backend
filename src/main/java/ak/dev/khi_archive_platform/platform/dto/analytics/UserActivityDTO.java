@@ -46,6 +46,9 @@ public class UserActivityDTO implements Serializable {
     private long totalActions;
     private Map<String, EntityStatsDTO> byEntity;
     private List<DailyBucketDTO> daily;
+    /** One bucket per calendar month in the window, ordered newest first.
+     *  Months with zero activity are omitted. */
+    private List<MonthlyBucketDTO> monthly;
     /** Paginated slice of this user's activity, ordered per the request's
      *  {@code sort} parameter. Carries {@code page/size/totalElements/...} so
      *  the UI can render full pagination controls. */

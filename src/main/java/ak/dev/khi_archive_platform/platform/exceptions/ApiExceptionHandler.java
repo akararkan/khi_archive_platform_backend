@@ -92,6 +92,13 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "PERSON_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
+    @ExceptionHandler(MaqamValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleMaqamValidation(MaqamValidationException ex,
+                                                                  HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "MAQAM_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
+    }
+
     // ─── 404 Not Found ──────────────────────────────────────────────────────────
 
     @ExceptionHandler(VideoNotFoundException.class)
@@ -141,6 +148,27 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handlePersonNotFound(PersonNotFoundException ex,
                                                                  HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "PERSON_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(MaqamNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleMaqamNotFound(MaqamNotFoundException ex,
+                                                                HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "MAQAM_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(MaqamAccessDeniedException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleMaqamAccessDenied(MaqamAccessDeniedException ex,
+                                                                    HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "MAQAM_PANEL_ACCESS_DENIED", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(GuestCorrectionNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleCorrectionNotFound(GuestCorrectionNotFoundException ex,
+                                                                     HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "CORRECTION_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
@@ -238,6 +266,13 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleProjectInUse(ProjectInUseException ex,
                                                                HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "PROJECT_IN_USE", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(CorrectionAlreadyProcessedException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleCorrectionAlreadyProcessed(CorrectionAlreadyProcessedException ex,
+                                                                             HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "CORRECTION_ALREADY_PROCESSED", ex.getMessage(), request.getRequestURI(), null);
     }
 
     // ─── 401 / 403 Auth ─────────────────────────────────────────────────────────

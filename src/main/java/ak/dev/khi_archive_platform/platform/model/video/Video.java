@@ -267,6 +267,14 @@ public class Video {
     @Column(name = "video_file_url", length = 1000)
     private String videoFileUrl;
 
+    // ─── Visibility ──────────────────────────────────────────────────────────────
+
+    /** When false this record is hidden from all guest/public APIs.
+     *  Employees and admins always see it. Default: true (publicly visible). */
+    @Column(name = "is_public", nullable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT TRUE")
+    @Builder.Default
+    private Boolean isPublic = true;
+
     // ─── Audit ───────────────────────────────────────────────────────────────────
 
     @Column(name = "created_at")
