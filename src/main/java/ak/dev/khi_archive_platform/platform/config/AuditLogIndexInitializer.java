@@ -46,6 +46,7 @@ public class AuditLogIndexInitializer {
             "category_audit_logs",
             "person_audit_logs",
             "maqam_audit_logs",
+            "physical_media_audit_logs",
             "analytics_audit_logs",
             "user_audit_logs"
     );

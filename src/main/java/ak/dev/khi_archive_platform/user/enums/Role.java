@@ -62,6 +62,13 @@ public enum Role {
      * {@code MAQAM_TEACHER_MANAGE} is also seeded so employees can pick the
      * 1–3 teachers on a record they've prepared (admins keep the same power
      * via the ADMIN role).
+     *
+     * <p>{@code PHYSICAL_MEDIA_READ/CREATE/UPDATE/IMPORT} are seeded so
+     * employees can fill and edit the physical-media inventory (the
+     * {@code physical_media} table populated from {@code All Final Archive
+     * Lists.xlsx}) and run the bulk Excel import themselves. REMOVE/DELETE
+     * stay admin-only — soft-trash + purge of an inventory row is a
+     * destructive action that touches records other teammates may own.
      */
     public static final Set<String> EMPLOYEE_DEFAULT_PERMISSIONS = Set.of(
             Permission.AUDIO_READ.getPermission(),    Permission.AUDIO_CREATE.getPermission(),    Permission.AUDIO_UPDATE.getPermission(),
@@ -72,7 +79,11 @@ public enum Role {
             Permission.PERSON_READ.getPermission(),   Permission.PERSON_CREATE.getPermission(),   Permission.PERSON_UPDATE.getPermission(),
             Permission.PROJECT_READ.getPermission(),  Permission.PROJECT_CREATE.getPermission(),  Permission.PROJECT_UPDATE.getPermission(),
             Permission.MAQAM_READ.getPermission(),    Permission.MAQAM_CREATE.getPermission(),    Permission.MAQAM_UPDATE.getPermission(),
-            Permission.MAQAM_TEACHER_MANAGE.getPermission()
+            Permission.MAQAM_TEACHER_MANAGE.getPermission(),
+            Permission.PHYSICAL_MEDIA_READ.getPermission(),
+            Permission.PHYSICAL_MEDIA_CREATE.getPermission(),
+            Permission.PHYSICAL_MEDIA_UPDATE.getPermission(),
+            Permission.PHYSICAL_MEDIA_IMPORT.getPermission()
     );
 
     /**

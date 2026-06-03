@@ -65,7 +65,8 @@ import java.util.TreeSet;
 public class AnalyticsService {
 
     public static final List<String> ENTITY_KEYS = List.of(
-            "audio", "video", "image", "text", "project", "category", "person", "maqam"
+            "audio", "video", "image", "text", "project", "category", "person",
+            "maqam", "physical_media"
     );
 
     /** Whitelist of action names accepted by the {@code actions=} filter. The
@@ -80,7 +81,9 @@ public class AnalyticsService {
             // enums don't define them, so the filter degrades to zero matches).
             "TEACHER_ASSIGNED", "TEACHER_REMOVED",
             "VOTE_CAST", "VOTE_UPDATED", "VOTE_DELETED",
-            "STREAM", "LISTEN_STARTED", "LISTEN_PROGRESS", "LISTEN_ENDED"
+            "STREAM", "LISTEN_STARTED", "LISTEN_PROGRESS", "LISTEN_ENDED",
+            // Physical-media bulk import — one row per .xlsx upload.
+            "IMPORT"
     );
 
     /** Selectable choices surfaced to the admin UI via the action catalog
@@ -169,6 +172,14 @@ public class AnalyticsService {
                        request_method, request_path,
                        occurred_at, details
                   FROM maqam_audit_logs
+                UNION ALL
+                SELECT 'physical_media', action::text, physical_media_id, physical_media_code,
+                       actor_user_id, actor_username, actor_display_name,
+                       actor_authorities, actor_permissions,
+                       device_info, ip_address, session_id,
+                       request_method, request_path,
+                       occurred_at, details
+                  FROM physical_media_audit_logs
             )
             """;
 

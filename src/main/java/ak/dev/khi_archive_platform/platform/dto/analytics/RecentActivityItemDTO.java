@@ -9,8 +9,8 @@ import java.io.Serializable;
 import java.time.Instant;
 
 /**
- * One audit-log row, normalised across the seven entity tables. Returned
- * by the activity feed in chronological order (newest first).
+ * One audit-log row, normalised across every {@code *_audit_logs} table.
+ * Returned by the activity feed in chronological order (newest first).
  *
  * <p>Carries the full actor + request context captured at audit time so the
  * admin console can show "who did what, from where, with which permissions"
@@ -21,7 +21,9 @@ import java.time.Instant;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RecentActivityItemDTO implements Serializable {
-    /** "audio", "video", "image", "text", "project", "category", "person". */
+    /** One of {@code "audio", "video", "image", "text", "project", "category",
+     *  "person", "maqam", "physical_media"}. Kept lower-case to match the
+     *  shape of {@link ak.dev.khi_archive_platform.platform.service.analytics.AnalyticsService#ENTITY_KEYS}. */
     private String entity;
     private Long entityId;
     private String entityCode;

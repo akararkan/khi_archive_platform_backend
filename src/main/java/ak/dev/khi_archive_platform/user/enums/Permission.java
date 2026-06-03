@@ -120,7 +120,27 @@ public enum Permission {
     // Assign / unassign which teachers are on a List-of-Maqam record
     // (min 1, max 3). Held by ADMIN and seeded into the EMPLOYEE default set
     // so the employee who prepared the record can also pick its teacher panel.
-    MAQAM_TEACHER_MANAGE("maqam:teacher_manage");
+    MAQAM_TEACHER_MANAGE("maqam:teacher_manage"),
+
+    // ── Physical Media (inventory of cassettes, reels, DVDs, …) ────────
+    // Five-action CRUD parallels the other content entities, plus an explicit
+    // {@code physical_media:import} for the .xlsx ingest endpoint. Seeded
+    // into EMPLOYEE_DEFAULT_PERMISSIONS: READ + CREATE + UPDATE + IMPORT —
+    // employees can fill the inventory the same way they prepare audio,
+    // including running an Excel import. REMOVE/DELETE stay admin-only
+    // (soft-trash + purge), matching the pattern used by audio/video.
+    PHYSICAL_MEDIA_READ("physical_media:read"),
+    PHYSICAL_MEDIA_CREATE("physical_media:create"),
+    PHYSICAL_MEDIA_UPDATE("physical_media:update"),
+    PHYSICAL_MEDIA_REMOVE("physical_media:remove"),
+    PHYSICAL_MEDIA_DELETE("physical_media:delete"),
+    PHYSICAL_MEDIA_IMPORT("physical_media:import"),
+
+    // Manage the {@code physical_media_types} catalog: add a new type,
+    // edit a type's nine technical defaults, delete an unused type. Held
+    // by ADMIN; not seeded into the EMPLOYEE default set — the catalog is
+    // system configuration, not day-to-day work.
+    PHYSICAL_MEDIA_TYPE_MANAGE("physical_media:type_manage");
 
     private final String permission;
 }

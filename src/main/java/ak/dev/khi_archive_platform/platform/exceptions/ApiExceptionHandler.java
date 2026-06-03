@@ -99,6 +99,13 @@ public class ApiExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "MAQAM_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
     }
 
+    @ExceptionHandler(PhysicalMediaValidationException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handlePhysicalMediaValidation(PhysicalMediaValidationException ex,
+                                                                          HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "PHYSICAL_MEDIA_VALIDATION_ERROR", ex.getMessage(), request.getRequestURI(), toDetails(ex.getFieldErrors()));
+    }
+
     // ─── 404 Not Found ──────────────────────────────────────────────────────────
 
     @ExceptionHandler(VideoNotFoundException.class)
@@ -155,6 +162,13 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleMaqamNotFound(MaqamNotFoundException ex,
                                                                 HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "MAQAM_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
+    }
+
+    @ExceptionHandler(PhysicalMediaNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handlePhysicalMediaNotFound(PhysicalMediaNotFoundException ex,
+                                                                        HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "PHYSICAL_MEDIA_NOT_FOUND", ex.getMessage(), request.getRequestURI(), null);
     }
 
     @ExceptionHandler(MaqamAccessDeniedException.class)
