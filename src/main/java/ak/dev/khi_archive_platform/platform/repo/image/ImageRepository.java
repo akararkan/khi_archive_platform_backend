@@ -48,6 +48,22 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
             "WHERE i.project = :project AND i.removedAt IS NOT NULL")
     int restoreByProject(@Param("project") Project project);
 
+    /**
+     * Bulk set the {@code isPublic} flag for every active image belonging to
+     * the given project. Called by the Project visibility-cascade path.
+     * Only rows whose current value differs are touched.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Image i SET i.isPublic = :isPublic, " +
+            "i.updatedAt = :updatedAt, i.updatedBy = :updatedBy, " +
+            "i.version = COALESCE(i.version, 0) + 1 " +
+            "WHERE i.project = :project AND i.removedAt IS NULL " +
+            "  AND (i.isPublic IS NULL OR i.isPublic <> :isPublic)")
+    int updateVisibilityByProject(@Param("project") Project project,
+                                  @Param("isPublic") boolean isPublic,
+                                  @Param("updatedAt") Instant updatedAt,
+                                  @Param("updatedBy") String updatedBy);
+
     long countByProject(Project project);
 
     /** Loads every image for a project regardless of trash state — used during purge to collect S3 URLs. */

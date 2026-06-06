@@ -83,16 +83,22 @@ public class PhysicalMediaService {
     }
 
     /**
-     * Upserts a row coming from the Excel importer. Distinct from
+     * Inserts a row coming from the Excel importer. Distinct from
      * {@link #create} so the importer can:
      * <ul>
      *   <li>Mark {@code source = IMPORT} for traceability.</li>
-     *   <li>Bypass the create-vs-update dispatch by treating dedupe as a
-     *       service-internal concern (lookup by media-type + physical-label,
-     *       fall through to insert).</li>
      *   <li>Skip per-row audit (the importer writes one batch
      *       {@link PhysicalMediaAuditAction#IMPORT} entry).</li>
+     *   <li>Auto-create unknown types in the catalog instead of rejecting
+     *       the row.</li>
      * </ul>
+     *
+     * <p><b>Every row becomes a new record</b>. {@code pmCode} is the
+     * unique business key; the sheet's
+     * {@code (physical_media_type, physical_label)} pair is <em>not</em>
+     * unique — two artefacts that share a label are still two artefacts.
+     * The importer used to upsert on that pair, which silently merged
+     * distinct physical tapes; that behaviour has been removed.
      *
      * <p><b>Runs in its own transaction</b> (REQUIRES_NEW). Without this, a
      * single bad row throws from inside the importer's per-row loop; even
@@ -103,22 +109,11 @@ public class PhysicalMediaService {
      * semantics actually work.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public UpsertResult upsertFromImport(PhysicalMediaCreateRequestDTO dto, String actor) {
-        PhysicalMedia entity = null;
-        if (dto.getPhysicalMediaType() != null && !dto.getPhysicalMediaType().isBlank()
-                && dto.getPhysicalLabel() != null && !dto.getPhysicalLabel().isBlank()) {
-            entity = repository
-                    .findFirstByPhysicalMediaTypeAndPhysicalLabelAndRemovedAtIsNullOrderByIdAsc(
-                            dto.getPhysicalMediaType().trim(), dto.getPhysicalLabel().trim())
-                    .orElse(null);
-        }
-        boolean isInsert = (entity == null);
-        if (isInsert) {
-            entity = new PhysicalMedia();
-            entity.setPmCode(generateCode());
-            entity.setSource("IMPORT");
-            entity.setCreatedBy(actor);
-        }
+    public PhysicalMedia insertFromImport(PhysicalMediaCreateRequestDTO dto, String actor) {
+        PhysicalMedia entity = new PhysicalMedia();
+        entity.setPmCode(generateCode());
+        entity.setSource("IMPORT");
+        entity.setCreatedBy(actor);
         entity.setUpdatedBy(actor);
         mapper.applyCreate(entity, dto);
         // Lenient on import: if the sheet carries an unknown media type,
@@ -132,27 +127,24 @@ public class PhysicalMediaService {
         // Sheet-row Number wins when present (round-trips the sheet). When
         // the row didn't carry one (hand-added without filling it, or a
         // blank cell), fall through to the per-type sequence.
-        if (isInsert && entity.getInventoryNumber() == null
+        if (entity.getInventoryNumber() == null
                 && entity.getPhysicalMediaType() != null) {
             entity.setInventoryNumber(nextInventoryNumber(entity.getPhysicalMediaType()));
         }
-        return new UpsertResult(repository.save(entity), isInsert);
+        return repository.save(entity);
     }
-
-    /** Tiny return type for {@link #upsertFromImport} so the importer can
-     *  count inserts vs updates without relying on timestamp heuristics. */
-    public record UpsertResult(PhysicalMedia entity, boolean inserted) { }
 
     public PhysicalMediaResponseDTO update(String pmCode,
                                            PhysicalMediaUpdateRequestDTO dto,
                                            Authentication auth,
                                            HttpServletRequest request) {
         PhysicalMedia entity = mustFindActive(pmCode);
-        mapper.applyUpdate(entity, dto);
+        List<String> touched = mapper.applyUpdate(entity, dto);
         entity.setUpdatedBy(actorName(auth));
 
         PhysicalMedia saved = repository.save(entity);
-        auditService.record(saved, PhysicalMediaAuditAction.UPDATE, auth, request, "PATCH");
+        auditService.record(saved, PhysicalMediaAuditAction.UPDATE, auth, request,
+                "fields=" + (touched.isEmpty() ? "<none>" : String.join(",", touched)));
         return mapper.toResponse(saved);
     }
 
@@ -221,10 +213,10 @@ public class PhysicalMediaService {
     }
 
     /** Used by the importer to log one IMPORT entry per batch. */
-    public void recordImport(int inserted, int updated, int skipped,
+    public void recordImport(int inserted, int skipped,
                              Authentication auth, HttpServletRequest request) {
         auditService.record(null, PhysicalMediaAuditAction.IMPORT, auth, request,
-                "inserted=" + inserted + " updated=" + updated + " skipped=" + skipped);
+                "inserted=" + inserted + " skipped=" + skipped);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -274,6 +266,22 @@ public class PhysicalMediaService {
      */
     private int nextInventoryNumber(String physicalMediaType) {
         codeGenLock.lock(INVENTORY_NUM_LOCK_NAMESPACE + physicalMediaType.trim());
+        Integer max = repository.findMaxInventoryNumberByPhysicalMediaType(physicalMediaType.trim());
+        return (max == null ? 0 : max) + 1;
+    }
+
+    /**
+     * Best-effort preview of the next {@code Number} for a type without
+     * acquiring the advisory lock. Drives the frontend's "the new row
+     * will be Number 56" hint so the user can see the value before they
+     * submit and doesn't have to type it again. The actual create path
+     * re-mints under the lock, so a stale preview can't collide.
+     */
+    @Transactional(readOnly = true)
+    public int peekNextInventoryNumber(String physicalMediaType) {
+        if (physicalMediaType == null || physicalMediaType.isBlank()) {
+            throw new PhysicalMediaValidationException("type query parameter is required");
+        }
         Integer max = repository.findMaxInventoryNumberByPhysicalMediaType(physicalMediaType.trim());
         return (max == null ? 0 : max) + 1;
     }

@@ -29,6 +29,8 @@ public class ProjectResponseDTO implements Serializable {
     private String description;
     private List<String> tags;
     private List<String> keywords;
+    /** Project-level public visibility flag. False ⇒ hidden from guests. */
+    private Boolean isVisibleToPublic;
     private Instant createdAt;
     private Instant updatedAt;
     private Instant removedAt;

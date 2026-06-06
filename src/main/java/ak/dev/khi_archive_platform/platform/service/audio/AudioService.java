@@ -588,6 +588,8 @@ public class AudioService {
         response.setOwner(audio.getOwner());
         response.setPublisher(audio.getPublisher());
         response.setArchiveLocalNote(audio.getArchiveLocalNote());
+        response.setIsPublic(audio.getIsPublic());
+        response.setProjectVisibleToPublic(project != null ? project.getIsVisibleToPublic() : null);
         response.setCreatedAt(audio.getCreatedAt());
         response.setUpdatedAt(audio.getUpdatedAt());
         response.setRemovedAt(audio.getRemovedAt());

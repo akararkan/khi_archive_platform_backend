@@ -48,6 +48,22 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
             "WHERE v.project = :project AND v.removedAt IS NOT NULL")
     int restoreByProject(@Param("project") Project project);
 
+    /**
+     * Bulk set the {@code isPublic} flag for every active video belonging to
+     * the given project. Called by the Project visibility-cascade path.
+     * Only rows whose current value differs are touched.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Video v SET v.isPublic = :isPublic, " +
+            "v.updatedAt = :updatedAt, v.updatedBy = :updatedBy, " +
+            "v.version = COALESCE(v.version, 0) + 1 " +
+            "WHERE v.project = :project AND v.removedAt IS NULL " +
+            "  AND (v.isPublic IS NULL OR v.isPublic <> :isPublic)")
+    int updateVisibilityByProject(@Param("project") Project project,
+                                  @Param("isPublic") boolean isPublic,
+                                  @Param("updatedAt") Instant updatedAt,
+                                  @Param("updatedBy") String updatedBy);
+
     long countByProject(Project project);
 
     /** Loads every video for a project regardless of trash state — used during purge to collect S3 URLs. */

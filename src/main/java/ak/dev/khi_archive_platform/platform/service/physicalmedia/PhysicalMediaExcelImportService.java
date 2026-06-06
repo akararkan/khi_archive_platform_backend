@@ -153,7 +153,6 @@ public class PhysicalMediaExcelImportService {
         Set<String> matchedHeaders = new HashSet<>();
         Set<String> unknownHeaders = new HashSet<>();
         int inserted = 0;
-        int updated = 0;
         int skipped = 0;
         int totalDataRows = 0;
         String resolvedSheetName;
@@ -182,23 +181,34 @@ public class PhysicalMediaExcelImportService {
             int last = sheet.getLastRowNum();
             for (int r = header.getRowNum() + 1; r <= last; r++) {
                 Row row = sheet.getRow(r);
+                // Truly empty rows (every data cell blank) are skipped silently —
+                // they're usually visual spacers, not records the staff want to
+                // chase. Every other row goes in, even if half the columns are
+                // empty or contain garbage values; the staff can clean up later.
                 if (row == null || isRowEmpty(row, colToField.keySet())) continue;
                 totalDataRows++;
 
+                PhysicalMediaCreateRequestDTO dto = rowToDto(row, colToField);
                 try {
-                    PhysicalMediaCreateRequestDTO dto = rowToDto(row, colToField);
-                    if (dto.getPhysicalMediaType() == null && dto.getTitle() == null
-                            && dto.getPhysicalLabel() == null) {
-                        skipped++;
-                        errors.add(rowError(r + 1, "row has neither media type, title, nor physical label"));
-                        continue;
-                    }
-                    var result = physicalMediaService.upsertFromImport(dto, actor);
-                    if (result.inserted()) inserted++; else updated++;
+                    physicalMediaService.insertFromImport(dto, actor);
+                    inserted++;
                 } catch (Exception ex) {
-                    skipped++;
-                    errors.add(rowError(r + 1, ex.getMessage()));
-                    log.warn("Excel import row {} skipped: {}", r + 1, ex.getMessage());
+                    // Per-row persistence failure (DB constraint, optimistic
+                    // lock, …). Record it in the report but DO NOT skip — the
+                    // staff want every row in the DB even when bad. Fall back
+                    // to a stripped insert that only carries the safe text
+                    // columns so the row still surfaces in the listing and a
+                    // human can patch it up.
+                    log.warn("Excel import row {} primary insert failed ({}); retrying with stripped fields", r + 1, ex.getMessage());
+                    try {
+                        physicalMediaService.insertFromImport(safeFallback(dto), actor);
+                        inserted++;
+                        errors.add(rowError(r + 1, "saved with stripped fields after error: " + ex.getMessage()));
+                    } catch (Exception inner) {
+                        skipped++;
+                        errors.add(rowError(r + 1, "could not save even stripped row: " + inner.getMessage()));
+                        log.warn("Excel import row {} fully failed: {}", r + 1, inner.getMessage());
+                    }
                 }
             }
         } catch (PhysicalMediaValidationException e) {
@@ -207,7 +217,7 @@ public class PhysicalMediaExcelImportService {
             throw new PhysicalMediaValidationException("Failed to read workbook: " + e.getMessage());
         }
 
-        physicalMediaService.recordImport(inserted, updated, skipped, auth, request);
+        physicalMediaService.recordImport(inserted, skipped, auth, request);
 
         return PhysicalMediaImportReportDTO.builder()
                 .sheetName(resolvedSheetName)
@@ -215,7 +225,6 @@ public class PhysicalMediaExcelImportService {
                 .unknownHeaders(new ArrayList<>(unknownHeaders))
                 .totalDataRows(totalDataRows)
                 .inserted(inserted)
-                .updated(updated)
                 .skipped(skipped)
                 .errors(errors)
                 .finishedAt(Instant.now())
@@ -304,8 +313,16 @@ public class PhysicalMediaExcelImportService {
             case "content" -> dto.setContent(textOf(cell));
             case "archiveDepNote" -> dto.setArchiveDepNote(textOf(cell));
             case "digitization" -> {
+                // Bulletproof: invalid digitization codes (anything other
+                // than 0/1/2) become null instead of failing the row.
                 Integer code = intOf(cell);
-                if (code != null) dto.setDigitization(DigitizationStatus.fromCode(code));
+                if (code != null) {
+                    try {
+                        dto.setDigitization(DigitizationStatus.fromCode(code));
+                    } catch (RuntimeException ignored) {
+                        // leave dto.digitization null; staff will fix the value later
+                    }
+                }
             }
             case "owner" -> dto.setOwner(textOf(cell));
             case "year" -> dto.setYear(intOf(cell));
@@ -402,6 +419,51 @@ public class PhysicalMediaExcelImportService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Builds a minimal-but-valid DTO that drops anything likely to break
+     * persistence (the encoded enum + boolean fields, the date) and keeps
+     * the free-text columns staff need to recognise the row when they go
+     * fix it. Used as a fallback when the original DTO failed to save —
+     * we'd rather land a degraded row than skip the artefact entirely.
+     */
+    private PhysicalMediaCreateRequestDTO safeFallback(PhysicalMediaCreateRequestDTO original) {
+        PhysicalMediaCreateRequestDTO out = new PhysicalMediaCreateRequestDTO();
+        out.setRowNumber(original.getRowNumber());
+        out.setInventoryNumber(original.getInventoryNumber());
+        out.setPhysicalMediaType(original.getPhysicalMediaType());
+        out.setMediaCategory(original.getMediaCategory());
+        out.setTitle(original.getTitle());
+        out.setSubType(original.getSubType());
+        out.setPhysicalLabel(original.getPhysicalLabel());
+        out.setSize(original.getSize());
+        out.setContent(original.getContent());
+        // Annotate so staff can find it via the listing and recognise the
+        // row was imported as a fallback.
+        String note = "[Imported with stripped fields — original encoded or"
+                + " date columns failed to parse]";
+        String existing = original.getArchiveDepNote();
+        out.setArchiveDepNote(existing == null || existing.isBlank()
+                ? note
+                : (existing + " " + note));
+        out.setOwner(original.getOwner());
+        out.setYear(original.getYear());
+        out.setDurationMin(original.getDurationMin());
+        out.setTrackNumbers(original.getTrackNumbers());
+        out.setTrackName(original.getTrackName());
+        out.setExtension(original.getExtension());
+        out.setBitOrColorDepth(original.getBitOrColorDepth());
+        out.setSampleOrFrameRate(original.getSampleOrFrameRate());
+        out.setChannelsOrResolution(original.getChannelsOrResolution());
+        out.setPlaybackModel(original.getPlaybackModel());
+        out.setCaptureInterface(original.getCaptureInterface());
+        out.setSignalInterface(original.getSignalInterface());
+        out.setIngestSoftware(original.getIngestSoftware());
+        out.setFormatCodec(original.getFormatCodec());
+        // Intentionally dropped: digitization, needToClear, digitizeDate, tags.
+        out.setCaptureDepNote(original.getCaptureDepNote());
+        return out;
     }
 
     /**

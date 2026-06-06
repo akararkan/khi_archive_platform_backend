@@ -48,6 +48,22 @@ public interface TextRepository extends JpaRepository<Text, Long> {
             "WHERE t.project = :project AND t.removedAt IS NOT NULL")
     int restoreByProject(@Param("project") Project project);
 
+    /**
+     * Bulk set the {@code isPublic} flag for every active text belonging to
+     * the given project. Called by the Project visibility-cascade path.
+     * Only rows whose current value differs are touched.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Text t SET t.isPublic = :isPublic, " +
+            "t.updatedAt = :updatedAt, t.updatedBy = :updatedBy, " +
+            "t.version = COALESCE(t.version, 0) + 1 " +
+            "WHERE t.project = :project AND t.removedAt IS NULL " +
+            "  AND (t.isPublic IS NULL OR t.isPublic <> :isPublic)")
+    int updateVisibilityByProject(@Param("project") Project project,
+                                  @Param("isPublic") boolean isPublic,
+                                  @Param("updatedAt") Instant updatedAt,
+                                  @Param("updatedBy") String updatedBy);
+
     long countByProject(Project project);
 
     /** Loads every text for a project regardless of trash state — used during purge to collect S3 URLs. */

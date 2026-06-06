@@ -42,6 +42,31 @@ public class PhysicalMediaAuditService {
     private final JwtCookieService jwtCookieService;
     private final JwtTokenProvider jwtTokenProvider;
 
+    /**
+     * Overload for catalog operations on {@code physical_media_types}.
+     * Stores the catalog row's id in {@code physical_media_id} and its
+     * name in {@code physical_label} so the analytics feed shows
+     * "<actor> added type 'CD/DVD'" without a join. Other entity-specific
+     * fields are left null — the analytics UNION reads only
+     * {@code entity_id}/{@code entity_code}/{@code actor_*} so this is
+     * a clean fit.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public PhysicalMediaAuditLog recordTypeAction(Long typeId,
+                                                  String typeName,
+                                                  PhysicalMediaAuditAction action,
+                                                  Authentication authentication,
+                                                  HttpServletRequest request,
+                                                  String details) {
+        PhysicalMedia ghost = PhysicalMedia.builder()
+                .id(typeId)
+                .physicalLabel(typeName)
+                .physicalMediaType(typeName)
+                .title(typeName)
+                .build();
+        return record(ghost, action, authentication, request, details);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public PhysicalMediaAuditLog record(PhysicalMedia entity,
                                         PhysicalMediaAuditAction action,

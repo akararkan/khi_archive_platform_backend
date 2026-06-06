@@ -575,6 +575,9 @@ public class TextService {
                 .availability(text.getAvailability())
                 .owner(text.getOwner())
                 .publisher(text.getPublisher())
+                // Visibility
+                .isPublic(text.getIsPublic())
+                .projectVisibleToPublic(project != null ? project.getIsVisibleToPublic() : null)
                 // Audit
                 .createdAt(text.getCreatedAt())
                 .updatedAt(text.getUpdatedAt())

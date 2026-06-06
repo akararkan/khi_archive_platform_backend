@@ -83,7 +83,9 @@ public class AnalyticsService {
             "VOTE_CAST", "VOTE_UPDATED", "VOTE_DELETED",
             "STREAM", "LISTEN_STARTED", "LISTEN_PROGRESS", "LISTEN_ENDED",
             // Physical-media bulk import — one row per .xlsx upload.
-            "IMPORT"
+            "IMPORT",
+            // Physical-media catalog operations (admin manages allowed types).
+            "TYPE_CREATE", "TYPE_UPDATE", "TYPE_DELETE"
     );
 
     /** Selectable choices surfaced to the admin UI via the action catalog

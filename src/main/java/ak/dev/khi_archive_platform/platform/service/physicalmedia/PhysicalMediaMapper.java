@@ -107,41 +107,47 @@ public class PhysicalMediaMapper {
         e.setCaptureDepNote(trimOrNull(dto.getCaptureDepNote()));
     }
 
-    /** PATCH semantics: only touch fields the caller actually sent. */
-    public void applyUpdate(PhysicalMedia e, PhysicalMediaUpdateRequestDTO dto) {
-        if (dto.getRowNumber() != null) e.setRowNumber(dto.getRowNumber());
-        if (dto.getInventoryNumber() != null) e.setInventoryNumber(dto.getInventoryNumber());
-        if (dto.getPhysicalMediaType() != null) e.setPhysicalMediaType(trimOrNull(dto.getPhysicalMediaType()));
-        if (dto.getMediaCategory() != null) e.setMediaCategory(trimOrNull(dto.getMediaCategory()));
-        if (dto.getTitle() != null) e.setTitle(trimOrNull(dto.getTitle()));
-        if (dto.getSubType() != null) e.setSubType(trimOrNull(dto.getSubType()));
-        if (dto.getPhysicalLabel() != null) e.setPhysicalLabel(trimOrNull(dto.getPhysicalLabel()));
-        if (dto.getSize() != null) e.setSize(trimOrNull(dto.getSize()));
-        if (dto.getContent() != null) e.setContent(trimOrNull(dto.getContent()));
-        if (dto.getArchiveDepNote() != null) e.setArchiveDepNote(trimOrNull(dto.getArchiveDepNote()));
+    /** PATCH semantics: only touch fields the caller actually sent.
+     *  Returns the list of field names that were touched so the audit
+     *  detail can name them ("fields=title,owner,year"). */
+    public java.util.List<String> applyUpdate(PhysicalMedia e, PhysicalMediaUpdateRequestDTO dto) {
+        java.util.List<String> touched = new java.util.ArrayList<>();
+        if (dto.getRowNumber() != null)        { e.setRowNumber(dto.getRowNumber()); touched.add("rowNumber"); }
+        if (dto.getInventoryNumber() != null)  { e.setInventoryNumber(dto.getInventoryNumber()); touched.add("inventoryNumber"); }
+        if (dto.getPhysicalMediaType() != null){ e.setPhysicalMediaType(trimOrNull(dto.getPhysicalMediaType())); touched.add("physicalMediaType"); }
+        if (dto.getMediaCategory() != null)    { e.setMediaCategory(trimOrNull(dto.getMediaCategory())); touched.add("mediaCategory"); }
+        if (dto.getTitle() != null)            { e.setTitle(trimOrNull(dto.getTitle())); touched.add("title"); }
+        if (dto.getSubType() != null)          { e.setSubType(trimOrNull(dto.getSubType())); touched.add("subType"); }
+        if (dto.getPhysicalLabel() != null)    { e.setPhysicalLabel(trimOrNull(dto.getPhysicalLabel())); touched.add("physicalLabel"); }
+        if (dto.getSize() != null)             { e.setSize(trimOrNull(dto.getSize())); touched.add("size"); }
+        if (dto.getContent() != null)          { e.setContent(trimOrNull(dto.getContent())); touched.add("content"); }
+        if (dto.getArchiveDepNote() != null)   { e.setArchiveDepNote(trimOrNull(dto.getArchiveDepNote())); touched.add("archiveDepNote"); }
         if (dto.getDigitization() != null || dto.getDigitizationCode() != null) {
             e.setDigitization(resolveDigitization(dto.getDigitization(), dto.getDigitizationCode()));
+            touched.add("digitization");
         }
-        if (dto.getOwner() != null) e.setOwner(trimOrNull(dto.getOwner()));
-        if (dto.getYear() != null) e.setYear(dto.getYear());
-        if (dto.getDurationMin() != null) e.setDurationMin(dto.getDurationMin());
-        if (dto.getTrackNumbers() != null) e.setTrackNumbers(dto.getTrackNumbers());
-        if (dto.getTrackName() != null) e.setTrackName(trimOrNull(dto.getTrackName()));
-        if (dto.getExtension() != null) e.setExtension(trimOrNull(dto.getExtension()));
-        if (dto.getBitOrColorDepth() != null) e.setBitOrColorDepth(trimOrNull(dto.getBitOrColorDepth()));
-        if (dto.getSampleOrFrameRate() != null) e.setSampleOrFrameRate(trimOrNull(dto.getSampleOrFrameRate()));
-        if (dto.getChannelsOrResolution() != null) e.setChannelsOrResolution(trimOrNull(dto.getChannelsOrResolution()));
-        if (dto.getPlaybackModel() != null) e.setPlaybackModel(trimOrNull(dto.getPlaybackModel()));
-        if (dto.getCaptureInterface() != null) e.setCaptureInterface(trimOrNull(dto.getCaptureInterface()));
-        if (dto.getSignalInterface() != null) e.setSignalInterface(trimOrNull(dto.getSignalInterface()));
-        if (dto.getIngestSoftware() != null) e.setIngestSoftware(trimOrNull(dto.getIngestSoftware()));
-        if (dto.getFormatCodec() != null) e.setFormatCodec(trimOrNull(dto.getFormatCodec()));
-        if (dto.getDigitizeDate() != null) e.setDigitizeDate(dto.getDigitizeDate());
-        if (dto.getTags() != null) e.setTags(trimOrNull(dto.getTags()));
+        if (dto.getOwner() != null)            { e.setOwner(trimOrNull(dto.getOwner())); touched.add("owner"); }
+        if (dto.getYear() != null)             { e.setYear(dto.getYear()); touched.add("year"); }
+        if (dto.getDurationMin() != null)      { e.setDurationMin(dto.getDurationMin()); touched.add("durationMin"); }
+        if (dto.getTrackNumbers() != null)     { e.setTrackNumbers(dto.getTrackNumbers()); touched.add("trackNumbers"); }
+        if (dto.getTrackName() != null)        { e.setTrackName(trimOrNull(dto.getTrackName())); touched.add("trackName"); }
+        if (dto.getExtension() != null)        { e.setExtension(trimOrNull(dto.getExtension())); touched.add("extension"); }
+        if (dto.getBitOrColorDepth() != null)  { e.setBitOrColorDepth(trimOrNull(dto.getBitOrColorDepth())); touched.add("bitOrColorDepth"); }
+        if (dto.getSampleOrFrameRate() != null){ e.setSampleOrFrameRate(trimOrNull(dto.getSampleOrFrameRate())); touched.add("sampleOrFrameRate"); }
+        if (dto.getChannelsOrResolution() != null) { e.setChannelsOrResolution(trimOrNull(dto.getChannelsOrResolution())); touched.add("channelsOrResolution"); }
+        if (dto.getPlaybackModel() != null)    { e.setPlaybackModel(trimOrNull(dto.getPlaybackModel())); touched.add("playbackModel"); }
+        if (dto.getCaptureInterface() != null) { e.setCaptureInterface(trimOrNull(dto.getCaptureInterface())); touched.add("captureInterface"); }
+        if (dto.getSignalInterface() != null)  { e.setSignalInterface(trimOrNull(dto.getSignalInterface())); touched.add("signalInterface"); }
+        if (dto.getIngestSoftware() != null)   { e.setIngestSoftware(trimOrNull(dto.getIngestSoftware())); touched.add("ingestSoftware"); }
+        if (dto.getFormatCodec() != null)      { e.setFormatCodec(trimOrNull(dto.getFormatCodec())); touched.add("formatCodec"); }
+        if (dto.getDigitizeDate() != null)     { e.setDigitizeDate(dto.getDigitizeDate()); touched.add("digitizeDate"); }
+        if (dto.getTags() != null)             { e.setTags(trimOrNull(dto.getTags())); touched.add("tags"); }
         if (dto.getNeedToClear() != null || dto.getNeedToClearCode() != null) {
             e.setNeedToClear(resolveNeedToClear(dto.getNeedToClear(), dto.getNeedToClearCode()));
+            touched.add("needToClear");
         }
-        if (dto.getCaptureDepNote() != null) e.setCaptureDepNote(trimOrNull(dto.getCaptureDepNote()));
+        if (dto.getCaptureDepNote() != null)   { e.setCaptureDepNote(trimOrNull(dto.getCaptureDepNote())); touched.add("captureDepNote"); }
+        return touched;
     }
 
     private static DigitizationStatus resolveDigitization(DigitizationStatus typed, Integer code) {

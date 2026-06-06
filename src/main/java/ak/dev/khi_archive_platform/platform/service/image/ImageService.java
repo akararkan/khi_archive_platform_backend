@@ -584,6 +584,9 @@ public class ImageService {
                 .availability(image.getAvailability())
                 .owner(image.getOwner())
                 .publisher(image.getPublisher())
+                // Visibility
+                .isPublic(image.getIsPublic())
+                .projectVisibleToPublic(project != null ? project.getIsVisibleToPublic() : null)
                 // Audit
                 .createdAt(image.getCreatedAt())
                 .updatedAt(image.getUpdatedAt())

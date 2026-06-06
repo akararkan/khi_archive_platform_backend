@@ -114,6 +114,12 @@ public class VideoResponseDTO implements Serializable {
     private String owner;
     private String publisher;
 
+    // Visibility
+    /** Public-visibility flag of THIS video record. Independent of the project's flag unless the admin cascaded. */
+    private Boolean isPublic;
+    /** Project-level public-visibility flag. Mirrored here for the unified Items endpoint and frontend "Project is hidden" badge. */
+    private Boolean projectVisibleToPublic;
+
     // Audit
     private Instant createdAt;
     private Instant updatedAt;

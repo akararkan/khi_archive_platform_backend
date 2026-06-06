@@ -71,9 +71,33 @@ ALL CTE in `AnalyticsService` works unchanged after wiring in the new
 
 Actions recorded (`PhysicalMediaAuditAction`):
 `CREATE`, `READ`, `LIST`, `SEARCH`, `UPDATE`, `REMOVE`, `RESTORE`,
-`DELETE`, `PURGE`, `IMPORT`. The CHECK constraint is kept in sync at
+`DELETE`, `PURGE`, `IMPORT`, plus the catalog actions `TYPE_CREATE`,
+`TYPE_UPDATE`, `TYPE_DELETE`. The CHECK constraint is kept in sync at
 boot by `PhysicalMediaAuditActionConstraintInitializer` (same recipe as
 the maqam and user-role initializers).
+
+### `details` field per action
+
+What the activity feed shows in the details column:
+
+| Action        | `details` content                                          |
+| ------------- | ---------------------------------------------------------- |
+| `CREATE`      | `type=<physicalMediaType> label=<physicalLabel>`           |
+| `UPDATE`      | `fields=<csv of touched field names>` (e.g. `fields=title,owner,year`) |
+| `REMOVE`      | `soft-trashed`                                             |
+| `RESTORE`     | `restored from trash`                                      |
+| `PURGE`       | `permanent deletion`                                       |
+| `READ`        | `null` (the act itself is enough)                          |
+| `LIST`        | `size=<n>` (or `trash size=<n>` for the admin trash view)  |
+| `SEARCH`      | `q=<query> hits=<count>`                                   |
+| `IMPORT`      | `inserted=<X> skipped=<Y>`                                 |
+| `TYPE_CREATE` | `added type '<name>'`                                      |
+| `TYPE_UPDATE` | `fields=<csv of touched field names on the catalog row>`   |
+| `TYPE_DELETE` | `deleted type '<name>'`                                    |
+
+Catalog audit rows store the catalog id in `physical_media_id` and the
+type name in `physical_label` so the analytics feed surfaces them
+without an extra join: `<actor> added type 'CD/DVD'`.
 
 ### Wired into analytics
 
@@ -290,6 +314,7 @@ unique constraint catches duplicates via `ON CONFLICT DO NOTHING`).
 | `GET`   | `/`                        | `physical_media:read`         | `?page=&size=&sort=` (Spring Pageable, default size 50) |
 | `GET`   | `/search`                  | `physical_media:read`         | `?q=&limit=` (limit clamped to 1–100, default 20) |
 | `GET`   | `/{pmCode}`                | `physical_media:read`         | —                                              |
+| `GET`   | `/next-number?type=<type>` | `physical_media:read`         | Returns `{ physicalMediaType, nextInventoryNumber }`. Drives the create-form hint so the user sees the auto-assigned `Number` before they submit. Best-effort preview; the actual create re-mints under a lock. |
 | `POST`  | `/`                        | `physical_media:create`       | `PhysicalMediaCreateRequestDTO` (JSON)         |
 | `PATCH` | `/{pmCode}`                | `physical_media:update`       | `PhysicalMediaUpdateRequestDTO` (JSON, PATCH semantics) |
 | `DELETE`| `/{pmCode}`                | `physical_media:remove`       | soft-trash                                     |
@@ -318,17 +343,36 @@ column is matched against the canonical English + Kurdish header text
 language variants are accepted simultaneously, so a sheet exported as
 English-only or as the original bilingual headers both import.
 
-**Dedupe key** — `(physical_media_type, physical_label)` on active
-rows. A match becomes an `UPDATE`; missing-either-column rows are
-always inserted; concurrent imports are safe because each row goes
-through `PhysicalMediaService.upsertFromImport` which uses the same
-`CodeGenLock` advisory lock as hand-entry.
+**No dedupe** — every sheet row becomes a new `physical_media` record
+with its own `pmCode`. Two artefacts that happen to share
+`(physical_media_type, physical_label)` are still two distinct
+artefacts; merging them would silently lose inventory. Re-running the
+same workbook therefore creates duplicates — the import is "append
+every row," not "sync the sheet to the DB." Cleanup of accidental
+re-imports is via soft-trash + purge from the admin trash list.
 
-**Cell coercion** —
-- Integer columns: numeric cells → int; text like `"60"` → 60; `"60.0"` → 60.
+**Cell coercion** — maximally lenient. Anything that can't be parsed
+becomes `null` instead of failing the row:
+- Integer columns: numeric cells → int; text like `"60"` → 60; `"60.0"` → 60; junk → `null`.
 - `digitizeDate`: date-formatted cell → `LocalDate`; ISO-8601 text → parsed; anything else → `null`.
-- `digitization`: 0 / 1 / 2 → `DigitizationStatus` enum; blank → null; anything else → row error.
-- `needToClear`: 0 → false; 1 → true; blank or anything else → null.
+- `digitization`: 0 / 1 / 2 → `DigitizationStatus` enum; blank or anything else → `null` (no row failure).
+- `needToClear`: 0 → false; 1 → true; blank or anything else → `null`.
+
+**Leniency contract** — the importer **never refuses a row for missing
+or bad data**. Staff want every artefact in the DB so they can patch
+it up afterwards:
+- Rows missing media type, title, AND physical label still go in — they
+  surface in the list as a near-empty record with the row's other data.
+- A row whose original DTO trips a persistence error is retried with a
+  stripped-down DTO (the four encoded/temporal fields removed). The
+  archive note is annotated with `[Imported with stripped fields …]`
+  so staff can find and fix it. These rows land as inserted but get an
+  informational entry in `errors[]`.
+- The only rows actually skipped are physically empty rows (every data
+  cell blank — usually visual separators). They do not appear in
+  `errors[]` either.
+- Unknown `physicalMediaType` values still auto-create a blank-defaults
+  catalog entry — the row goes in either way.
 
 **Response — `PhysicalMediaImportReportDTO`**:
 
@@ -339,16 +383,17 @@ through `PhysicalMediaService.upsertFromImport` which uses the same
   "unknownHeaders": [],
   "totalDataRows": 4427,
   "inserted": 4427,
-  "updated": 0,
   "skipped": 0,
   "errors": [],
   "finishedAt": "2026-06-03T11:24:35Z"
 }
 ```
 
-`errors[]` is a list of `{rowNumber, message}` for any row that
-couldn't be persisted. The whole import runs in one transaction, so a
-single bad row is skipped — the rest still land.
+`errors[]` is a list of `{rowNumber, message}`. With the importer's
+maximum-leniency contract, `skipped` should be 0 for any reasonable
+sheet — entries in `errors[]` with `skipped == 0` are informational
+"saved with stripped fields" notes; entries with `skipped > 0` mean
+even the stripped-fallback retry failed.
 
 **One IMPORT audit row** is written per upload via
 `physical_media_audit_logs.action = 'IMPORT'`, with
@@ -392,6 +437,15 @@ quick "paste a row" UI can send the literal `{ "Physical Media Type":
 Required fields enforced server-side:
 - `physicalMediaType` (or you'll get `PHYSICAL_MEDIA_VALIDATION_ERROR`).
 - `title` **or** `physicalLabel` (at least one).
+
+**`Number` autofill** — `inventoryNumber` is **never required**: leave
+it blank and the server assigns the next available value for that
+media type (VHS Cassette #56 if 55 already exist). To give the user
+visibility before they submit, hit `GET /api/physical-media/next-number?type=<chosen>`
+when they pick a type and display the response value as a placeholder
+or pre-fill in the `Number` input. The user can still type a custom
+value to override; if they leave it blank, the server picks the same
+number (concurrency-safe via per-type advisory lock).
 
 ### Update form (PATCH)
 

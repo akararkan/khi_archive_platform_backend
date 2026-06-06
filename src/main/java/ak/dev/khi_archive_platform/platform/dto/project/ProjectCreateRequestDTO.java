@@ -32,4 +32,11 @@ public class ProjectCreateRequestDTO {
     private List<String> tags;
 
     private List<String> keywords;
+
+    /**
+     * Optional. Whether this project is visible to guest/public APIs.
+     * Defaults to true when omitted. Frontend send {@code false} for projects
+     * that should be hidden from guests at creation time.
+     */
+    private Boolean isVisibleToPublic;
 }

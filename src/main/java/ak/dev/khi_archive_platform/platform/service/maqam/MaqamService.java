@@ -6,7 +6,9 @@ import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSummaryDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherAssignmentDTO;
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherRecentDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import ak.dev.khi_archive_platform.platform.enums.MaqamAuditAction;
 import ak.dev.khi_archive_platform.platform.exceptions.MaqamAccessDeniedException;
 import ak.dev.khi_archive_platform.platform.exceptions.MaqamNotFoundException;
@@ -662,6 +664,85 @@ public class MaqamService {
         boolean admin = hasRole(auth, "ADMIN");
         return sessionRepository.findAllByTeacherUserIdOrderByStartedAtDesc(teacherUserId, pageable)
                 .map(s -> mapper.toSessionDTO(s, admin));
+    }
+
+    // ─── Teacher recent-activity feed ───────────────────────────────────────
+
+    /**
+     * "Where was I?" feed for the signed-in TEACHER. Returns every active
+     * {@link ListOfMaqam} record they're assigned to, sorted by the most
+     * recent thing they did on that record — latest of
+     * {@code lastListenAt}, vote {@code updatedAt}, {@code votedAt},
+     * {@code assignedAt}. Newest first.
+     *
+     * <p>Designed for elderly teachers who may forget which song they were
+     * working on: every row carries enough state ({@code maqamType}-or-null,
+     * {@code totalListenSeconds}, {@code maxPositionSeconds}, {@code coverageRatio},
+     * {@code streamUrl}) for the UI to render "Resume from 3m20s" or
+     * "Vote pending" without a follow-up call.
+     *
+     * <h4>Algorithm</h4>
+     * One JPQL fetch ({@code findAllAssignedActiveByTeacher}) pulls every
+     * vote-row for this teacher with the parent record join-fetched — no
+     * N+1. The set is small in practice (a teacher is on at most a few
+     * dozen records), so optional {@code q} filtering, the composite-max
+     * sort, and pagination all run in-memory via {@code PaginationSupport}.
+     * Microseconds; no extra DB round-trips.
+     *
+     * @param q optional case-insensitive substring matched against song name,
+     *          producer, or maqam code
+     */
+    @Transactional(readOnly = true)
+    public Page<MaqamTeacherRecentDTO> getMyRecentActivity(String q,
+                                                           Pageable pageable,
+                                                           Authentication auth,
+                                                           HttpServletRequest request) {
+        User teacher = mustGetCurrentUser(auth);
+        if (teacher.getRole() != Role.TEACHER) {
+            throw new MaqamAccessDeniedException("Only teachers may view their recent-activity feed");
+        }
+
+        String needle = q == null ? null : q.trim().toLowerCase(Locale.ROOT);
+        if (needle != null && needle.isEmpty()) needle = null;
+
+        List<MaqamTeacherVote> votes = voteRepository.findAllAssignedActiveByTeacher(teacher.getUserId());
+
+        List<MaqamTeacherRecentDTO> rows = new ArrayList<>(votes.size());
+        for (MaqamTeacherVote v : votes) {
+            ListOfMaqam record = v.getListOfMaqam();
+            if (record == null) continue; // defensive — JOIN FETCH guarantees non-null
+            if (needle != null
+                    && !containsIgnoreCase(record.getSongName(), needle)
+                    && !containsIgnoreCase(record.getProducer(), needle)
+                    && !containsIgnoreCase(record.getMaqamCode(), needle)) {
+                continue;
+            }
+            rows.add(mapper.toRecent(v, record, buildStreamUrl(request, record.getMaqamCode())));
+        }
+
+        // Sort newest activity first; rows with no activity at all (no vote,
+        // no listen, no assignedAt) fall to the bottom rather than the top.
+        rows.sort((a, b) -> {
+            Instant ta = a.getLastActivityAt();
+            Instant tb = b.getLastActivityAt();
+            if (ta == null && tb == null) return 0;
+            if (ta == null) return 1;
+            if (tb == null) return -1;
+            return tb.compareTo(ta);
+        });
+
+        Page<MaqamTeacherRecentDTO> page = PaginationSupport.sliceList(rows, pageable);
+
+        auditService.record(null, MaqamAuditAction.LIST, auth, request,
+                "teacher recent activity"
+                        + (needle == null ? "" : " q=" + needle)
+                        + " size=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements());
+        return page;
+    }
+
+    private static boolean containsIgnoreCase(String haystack, String needleLower) {
+        return haystack != null && haystack.toLowerCase(Locale.ROOT).contains(needleLower);
     }
 
     /** Used by the streaming controller (which is outside this service) to

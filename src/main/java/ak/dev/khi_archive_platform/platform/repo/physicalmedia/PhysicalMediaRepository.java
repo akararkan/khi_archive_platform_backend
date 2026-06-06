@@ -22,16 +22,6 @@ public interface PhysicalMediaRepository extends JpaRepository<PhysicalMedia, Lo
 
     Page<PhysicalMedia> findAllByRemovedAtIsNotNull(Pageable pageable);
 
-    /**
-     * Import dedupe lookup: matches an existing active row when the sheet
-     * has both a media type and a physical label. The sheet's
-     * {@code physicalLabel} is only unique inside one media type, so we
-     * scope by both. Returns the first match (sheet rows shouldn't double
-     * up; if they do we update the earliest).
-     */
-    Optional<PhysicalMedia> findFirstByPhysicalMediaTypeAndPhysicalLabelAndRemovedAtIsNullOrderByIdAsc(
-            String physicalMediaType, String physicalLabel);
-
     long countByRemovedAtIsNull();
 
     long countByRemovedAtIsNotNull();

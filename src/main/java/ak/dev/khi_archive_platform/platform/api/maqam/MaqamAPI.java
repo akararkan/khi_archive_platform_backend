@@ -6,6 +6,7 @@ import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenProgressRequest
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenStartRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherRecentDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamVoteRequestDTO;
 import ak.dev.khi_archive_platform.platform.exceptions.MaqamValidationException;
@@ -141,6 +142,31 @@ public class MaqamAPI {
             HttpServletRequest request) {
         maqamService.delete(maqamCode, auth, request);
         return ResponseEntity.noContent().build();
+    }
+
+    // ─── Teacher recent-activity feed (TEACHER role only) ────────────────────
+
+    /**
+     * Returns the signed-in teacher's "where was I?" list — every active
+     * maqam record they're assigned to, newest activity first. Each row
+     * includes their own vote state (or null if not yet voted), their
+     * listen progress, the audio duration, and a {@code streamUrl} for
+     * inline playback. Optional {@code q} substring-matches song name,
+     * producer, or maqam code.
+     *
+     * <p>The endpoint is guarded by {@code maqam:vote} (the TEACHER-only
+     * permission) so admins/employees can't accidentally hit it — they have
+     * the global {@link #listActive(Pageable, Authentication, HttpServletRequest)}
+     * endpoint instead.
+     */
+    @GetMapping("/teacher/my-recent")
+    @PreAuthorize("hasAuthority('maqam:vote')")
+    public ResponseEntity<Page<MaqamTeacherRecentDTO>> myRecent(
+            @RequestParam(value = "q", required = false) String q,
+            @PageableDefault(size = 50) Pageable pageable,
+            Authentication auth,
+            HttpServletRequest request) {
+        return ResponseEntity.ok(maqamService.getMyRecentActivity(q, pageable, auth, request));
     }
 
     // ─── Voting (TEACHER role only) ──────────────────────────────────────────

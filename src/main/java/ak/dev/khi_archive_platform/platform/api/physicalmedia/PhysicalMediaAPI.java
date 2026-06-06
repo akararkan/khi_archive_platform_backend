@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.api.physicalmedia;
 
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaImportReportDTO;
+import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaNextNumberDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.service.physicalmedia.PhysicalMediaExcelImportService;
@@ -83,6 +84,22 @@ public class PhysicalMediaAPI {
             Authentication auth,
             HttpServletRequest request) {
         return ResponseEntity.ok(service.getByCode(pmCode, auth, request));
+    }
+
+    /**
+     * Preview the {@code Number} that the server <em>would</em> assign to
+     * the next record of the given media type. Drives the create-form hint
+     * "this row will be VHS Cassette #56", so the user doesn't have to
+     * compute and re-type the count. Cheap read; no lock; no audit.
+     */
+    @GetMapping("/next-number")
+    @PreAuthorize("hasAuthority('physical_media:read')")
+    public ResponseEntity<PhysicalMediaNextNumberDTO> nextNumber(
+            @RequestParam("type") String physicalMediaType) {
+        return ResponseEntity.ok(PhysicalMediaNextNumberDTO.builder()
+                .physicalMediaType(physicalMediaType)
+                .nextInventoryNumber(service.peekNextInventoryNumber(physicalMediaType))
+                .build());
     }
 
     // ─── Mutations ───────────────────────────────────────────────────────────

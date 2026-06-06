@@ -48,6 +48,23 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
             "WHERE a.project = :project AND a.removedAt IS NOT NULL")
     int restoreByProject(@Param("project") Project project);
 
+    /**
+     * Bulk set the {@code isPublic} flag for every active audio belonging to
+     * the given project. Called by the Project visibility-cascade path.
+     * Only rows whose current value differs are touched, so the version bump
+     * happens only when something actually changes.
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Audio a SET a.isPublic = :isPublic, " +
+            "a.updatedAt = :updatedAt, a.updatedBy = :updatedBy, " +
+            "a.version = COALESCE(a.version, 0) + 1 " +
+            "WHERE a.project = :project AND a.removedAt IS NULL " +
+            "  AND (a.isPublic IS NULL OR a.isPublic <> :isPublic)")
+    int updateVisibilityByProject(@Param("project") Project project,
+                                  @Param("isPublic") boolean isPublic,
+                                  @Param("updatedAt") Instant updatedAt,
+                                  @Param("updatedBy") String updatedBy);
+
     long countByProject(Project project);
 
     /** Loads every audio for a project regardless of trash state — used during purge to collect S3 URLs. */

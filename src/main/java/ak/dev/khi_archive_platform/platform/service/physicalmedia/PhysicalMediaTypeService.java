@@ -3,11 +3,13 @@ package ak.dev.khi_archive_platform.platform.service.physicalmedia;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.enums.PhysicalMediaAuditAction;
 import ak.dev.khi_archive_platform.platform.exceptions.PhysicalMediaNotFoundException;
 import ak.dev.khi_archive_platform.platform.exceptions.PhysicalMediaValidationException;
 import ak.dev.khi_archive_platform.platform.model.physicalmedia.PhysicalMediaType;
 import ak.dev.khi_archive_platform.platform.repo.physicalmedia.PhysicalMediaRepository;
 import ak.dev.khi_archive_platform.platform.repo.physicalmedia.PhysicalMediaTypeRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,7 @@ public class PhysicalMediaTypeService {
 
     private final PhysicalMediaTypeRepository typeRepository;
     private final PhysicalMediaRepository mediaRepository;
+    private final PhysicalMediaAuditService auditService;
 
     // ─── Reads ───────────────────────────────────────────────────────────────
 
@@ -65,7 +68,8 @@ public class PhysicalMediaTypeService {
     // ─── Mutations ───────────────────────────────────────────────────────────
 
     public PhysicalMediaTypeResponseDTO create(PhysicalMediaTypeCreateRequestDTO dto,
-                                               Authentication auth) {
+                                               Authentication auth,
+                                               HttpServletRequest request) {
         String name = dto.getName() == null ? "" : dto.getName().trim();
         if (name.isEmpty()) throw new PhysicalMediaValidationException("Name is required");
         if (typeRepository.existsByName(name)) {
@@ -86,15 +90,23 @@ public class PhysicalMediaTypeService {
                 .createdBy(actor(auth))
                 .updatedBy(actor(auth))
                 .build();
-        return toResponse(typeRepository.save(entity));
+        PhysicalMediaType saved = typeRepository.save(entity);
+        auditService.recordTypeAction(saved.getId(), saved.getName(),
+                PhysicalMediaAuditAction.TYPE_CREATE, auth, request,
+                "added type '" + saved.getName() + "'");
+        return toResponse(saved);
     }
 
     public PhysicalMediaTypeResponseDTO update(Long id,
                                                PhysicalMediaTypeUpdateRequestDTO dto,
-                                               Authentication auth) {
+                                               Authentication auth,
+                                               HttpServletRequest request) {
         PhysicalMediaType entity = typeRepository.findById(id)
                 .orElseThrow(() -> new PhysicalMediaNotFoundException(
                         "Physical-media type not found: " + id));
+        // Track every field the PATCH actually touched so the audit details
+        // read "fields=extension,formatCodec" instead of an opaque "PATCH".
+        StringBuilder changed = new StringBuilder();
         if (dto.getName() != null) {
             String newName = dto.getName().trim();
             if (newName.isEmpty()) throw new PhysicalMediaValidationException("Name must not be blank");
@@ -103,23 +115,27 @@ public class PhysicalMediaTypeService {
             if (!newName.equals(entity.getName()) && typeRepository.existsByName(newName)) {
                 throw new PhysicalMediaValidationException("Type already exists: " + newName);
             }
-            entity.setName(newName);
+            entity.setName(newName); changed.append("name,");
         }
-        if (dto.getDescription() != null) entity.setDescription(trimOrNull(dto.getDescription()));
-        if (dto.getExtension() != null) entity.setExtension(trimOrNull(dto.getExtension()));
-        if (dto.getBitOrColorDepth() != null) entity.setBitOrColorDepth(trimOrNull(dto.getBitOrColorDepth()));
-        if (dto.getSampleOrFrameRate() != null) entity.setSampleOrFrameRate(trimOrNull(dto.getSampleOrFrameRate()));
-        if (dto.getChannelsOrResolution() != null) entity.setChannelsOrResolution(trimOrNull(dto.getChannelsOrResolution()));
-        if (dto.getPlaybackModel() != null) entity.setPlaybackModel(trimOrNull(dto.getPlaybackModel()));
-        if (dto.getCaptureInterface() != null) entity.setCaptureInterface(trimOrNull(dto.getCaptureInterface()));
-        if (dto.getSignalInterface() != null) entity.setSignalInterface(trimOrNull(dto.getSignalInterface()));
-        if (dto.getIngestSoftware() != null) entity.setIngestSoftware(trimOrNull(dto.getIngestSoftware()));
-        if (dto.getFormatCodec() != null) entity.setFormatCodec(trimOrNull(dto.getFormatCodec()));
+        if (dto.getDescription() != null) { entity.setDescription(trimOrNull(dto.getDescription())); changed.append("description,"); }
+        if (dto.getExtension() != null) { entity.setExtension(trimOrNull(dto.getExtension())); changed.append("extension,"); }
+        if (dto.getBitOrColorDepth() != null) { entity.setBitOrColorDepth(trimOrNull(dto.getBitOrColorDepth())); changed.append("bitOrColorDepth,"); }
+        if (dto.getSampleOrFrameRate() != null) { entity.setSampleOrFrameRate(trimOrNull(dto.getSampleOrFrameRate())); changed.append("sampleOrFrameRate,"); }
+        if (dto.getChannelsOrResolution() != null) { entity.setChannelsOrResolution(trimOrNull(dto.getChannelsOrResolution())); changed.append("channelsOrResolution,"); }
+        if (dto.getPlaybackModel() != null) { entity.setPlaybackModel(trimOrNull(dto.getPlaybackModel())); changed.append("playbackModel,"); }
+        if (dto.getCaptureInterface() != null) { entity.setCaptureInterface(trimOrNull(dto.getCaptureInterface())); changed.append("captureInterface,"); }
+        if (dto.getSignalInterface() != null) { entity.setSignalInterface(trimOrNull(dto.getSignalInterface())); changed.append("signalInterface,"); }
+        if (dto.getIngestSoftware() != null) { entity.setIngestSoftware(trimOrNull(dto.getIngestSoftware())); changed.append("ingestSoftware,"); }
+        if (dto.getFormatCodec() != null) { entity.setFormatCodec(trimOrNull(dto.getFormatCodec())); changed.append("formatCodec,"); }
         entity.setUpdatedBy(actor(auth));
-        return toResponse(typeRepository.save(entity));
+        PhysicalMediaType saved = typeRepository.save(entity);
+        auditService.recordTypeAction(saved.getId(), saved.getName(),
+                PhysicalMediaAuditAction.TYPE_UPDATE, auth, request,
+                "fields=" + (changed.length() == 0 ? "<none>" : changed.substring(0, changed.length() - 1)));
+        return toResponse(saved);
     }
 
-    public void delete(Long id) {
+    public void delete(Long id, Authentication auth, HttpServletRequest request) {
         PhysicalMediaType entity = typeRepository.findById(id)
                 .orElseThrow(() -> new PhysicalMediaNotFoundException(
                         "Physical-media type not found: " + id));
@@ -133,7 +149,12 @@ public class PhysicalMediaTypeService {
             throw new PhysicalMediaValidationException(
                     "Type '" + entity.getName() + "' is still used by " + inUse + " record(s)");
         }
+        String name = entity.getName();
+        Long typeId = entity.getId();
         typeRepository.delete(entity);
+        auditService.recordTypeAction(typeId, name,
+                PhysicalMediaAuditAction.TYPE_DELETE, auth, request,
+                "deleted type '" + name + "'");
     }
 
     /**

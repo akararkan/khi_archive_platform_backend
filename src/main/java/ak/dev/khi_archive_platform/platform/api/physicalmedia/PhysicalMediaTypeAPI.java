@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeC
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaTypeUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.service.physicalmedia.PhysicalMediaTypeService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -63,8 +64,9 @@ public class PhysicalMediaTypeAPI {
     @PreAuthorize("hasAuthority('physical_media:type_manage')")
     public ResponseEntity<PhysicalMediaTypeResponseDTO> create(
             @Valid @RequestBody PhysicalMediaTypeCreateRequestDTO dto,
-            Authentication auth) {
-        return ResponseEntity.ok(service.create(dto, auth));
+            Authentication auth,
+            HttpServletRequest request) {
+        return ResponseEntity.ok(service.create(dto, auth, request));
     }
 
     @PatchMapping(value = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -72,14 +74,17 @@ public class PhysicalMediaTypeAPI {
     public ResponseEntity<PhysicalMediaTypeResponseDTO> update(
             @PathVariable Long id,
             @Valid @RequestBody PhysicalMediaTypeUpdateRequestDTO dto,
-            Authentication auth) {
-        return ResponseEntity.ok(service.update(id, dto, auth));
+            Authentication auth,
+            HttpServletRequest request) {
+        return ResponseEntity.ok(service.update(id, dto, auth, request));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('physical_media:type_manage')")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        service.delete(id);
+    public ResponseEntity<Void> delete(@PathVariable Long id,
+                                       Authentication auth,
+                                       HttpServletRequest request) {
+        service.delete(id, auth, request);
         return ResponseEntity.noContent().build();
     }
 }

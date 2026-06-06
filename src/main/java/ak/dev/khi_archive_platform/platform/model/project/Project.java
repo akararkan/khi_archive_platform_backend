@@ -67,6 +67,18 @@ public class Project {
     @Column(name = "keyword", columnDefinition = "TEXT")
     private List<String> keywords = new ArrayList<>();
 
+    // ─── Visibility ──────────────────────────────────────────────────────────────
+
+    /** When false this project is hidden from all guest/public APIs.
+     *  Employees and admins always see it. Default: true (publicly visible).
+     *  The 4 media entities (Audio/Video/Image/Text) each carry their own
+     *  is_public flag — this field is the project-level toggle. Callers can
+     *  optionally cascade it down at update time. */
+    @Column(name = "is_visible_to_public", nullable = false,
+            columnDefinition = "BOOLEAN NOT NULL DEFAULT TRUE")
+    @Builder.Default
+    private Boolean isVisibleToPublic = true;
+
     // ─── Audit ───────────────────��───────────────────────────────────────────────
 
     @Column(name = "created_at")

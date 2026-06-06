@@ -92,6 +92,10 @@ public class AudioResponseDTO implements Serializable {
     private String owner;
     private String publisher;
     private String archiveLocalNote;
+    /** Public-visibility flag of THIS audio record. Independent of the project's flag unless the admin cascaded. */
+    private Boolean isPublic;
+    /** Project-level public-visibility flag. Mirrored here for the unified Items endpoint and frontend "Project is hidden" badge. */
+    private Boolean projectVisibleToPublic;
     private Instant createdAt;
     private Instant updatedAt;
     private Instant removedAt;

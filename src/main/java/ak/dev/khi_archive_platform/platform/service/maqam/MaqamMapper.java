@@ -2,12 +2,14 @@ package ak.dev.khi_archive_platform.platform.service.maqam;
 
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherRecentDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherVoteDTO;
 import ak.dev.khi_archive_platform.platform.model.maqam.ListOfMaqam;
 import ak.dev.khi_archive_platform.platform.model.maqam.MaqamAudioListenSession;
 import ak.dev.khi_archive_platform.platform.model.maqam.MaqamTeacherVote;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 
@@ -74,6 +76,68 @@ public class MaqamMapper {
                 .maxPositionSeconds(v.getMaxPositionSeconds())
                 .lastListenAt(v.getLastListenAt())
                 .build();
+    }
+
+    /**
+     * Build the per-record row of the teacher's "recent activity" feed.
+     *
+     * <p>{@code lastActivityAt} is computed as the latest of
+     * {@code lastListenAt}, {@code updatedAt}, {@code votedAt},
+     * {@code assignedAt} — whichever is the most recent thing the teacher
+     * did. {@code coverageRatio} = {@code totalListenSeconds / duration},
+     * clamped to {@code [0, 1]}; null when duration is unknown.
+     *
+     * @param baseStreamUrl pre-computed {@code /api/maqam/{code}/stream}
+     *                      URL so the row is playable inline without
+     *                      another round-trip and without exposing S3.
+     */
+    public MaqamTeacherRecentDTO toRecent(MaqamTeacherVote v, ListOfMaqam m, String baseStreamUrl) {
+        if (v == null || m == null) return null;
+
+        Long duration = m.getAudioDurationSeconds();
+        Long total = v.getTotalListenSeconds();
+        Double coverage = (duration == null || duration <= 0 || total == null)
+                ? null
+                : Math.min(1.0, total.doubleValue() / duration.doubleValue());
+
+        Instant lastActivity = latestOf(v.getLastListenAt(), v.getUpdatedAt(),
+                v.getVotedAt(), v.getAssignedAt());
+
+        return MaqamTeacherRecentDTO.builder()
+                .voteId(v.getId())
+                .maqamId(m.getId())
+                .maqamCode(m.getMaqamCode())
+                .songName(m.getSongName())
+                .producer(m.getProducer())
+                .archiveNote(m.getArchiveNote())
+                .audioFileName(m.getAudioFileName())
+                .audioDurationSeconds(duration)
+                .streamUrl(baseStreamUrl)
+                .maqamType(v.getMaqamType())
+                .teacherNote(v.getTeacherNote())
+                .hasVoted(v.getMaqamType() != null && !v.getMaqamType().isBlank())
+                .votedAt(v.getVotedAt())
+                .updatedAt(v.getUpdatedAt())
+                .assignedAt(v.getAssignedAt())
+                .assignedBy(v.getAssignedBy())
+                .totalListenSeconds(total == null ? 0L : total)
+                .maxPositionSeconds(v.getMaxPositionSeconds() == null ? 0L : v.getMaxPositionSeconds())
+                .lastListenAt(v.getLastListenAt())
+                .coverageRatio(coverage)
+                .lastActivityAt(lastActivity)
+                .recordCreatedAt(m.getCreatedAt())
+                .recordUpdatedAt(m.getUpdatedAt())
+                .build();
+    }
+
+    /** Returns the latest non-null Instant. Null when every input is null. */
+    private static Instant latestOf(Instant... candidates) {
+        Instant best = null;
+        for (Instant c : candidates) {
+            if (c == null) continue;
+            if (best == null || c.isAfter(best)) best = c;
+        }
+        return best;
     }
 
     public MaqamListenSessionDTO toSessionDTO(MaqamAudioListenSession s, boolean adminView) {

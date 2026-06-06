@@ -16,5 +16,14 @@ public enum PhysicalMediaAuditAction {
     DELETE,
     RESTORE,
     PURGE,
-    IMPORT
+    IMPORT,
+
+    // ── Catalog actions ───────────────────────────────────────────────
+    // Operations on the {@code physical_media_types} table. The audit
+    // row's {@code physical_media_id} carries the type's catalog id and
+    // {@code physical_label} carries its name, so the analytics feed
+    // surfaces "<actor> added type 'CD/DVD'" without extra joins.
+    TYPE_CREATE,
+    TYPE_UPDATE,
+    TYPE_DELETE
 }

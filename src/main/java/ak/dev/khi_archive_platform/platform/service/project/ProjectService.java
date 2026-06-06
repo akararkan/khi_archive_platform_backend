@@ -110,6 +110,7 @@ public class ProjectService {
                 .description(dto.getDescription())
                 .tags(dto.getTags() != null ? new ArrayList<>(dto.getTags()) : new ArrayList<>())
                 .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                .isVisibleToPublic(dto.getIsVisibleToPublic() != null ? dto.getIsVisibleToPublic() : Boolean.TRUE)
                 .build();
 
         touchCreateAudit(project, authentication);
@@ -193,6 +194,7 @@ public class ProjectService {
                     .description(dto.getDescription())
                     .tags(dto.getTags() != null ? new ArrayList<>(dto.getTags()) : new ArrayList<>())
                     .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                    .isVisibleToPublic(dto.getIsVisibleToPublic() != null ? dto.getIsVisibleToPublic() : Boolean.TRUE)
                     .createdAt(now)
                     .updatedAt(now)
                     .createdBy(actor)
@@ -281,16 +283,66 @@ public class ProjectService {
             project.setKeywords(new ArrayList<>(dto.getKeywords()));
         }
 
+        // Visibility: project-level toggle (always honored when provided) plus
+        // optional cascade to all active media records under this project.
+        // Cascade mode is read from dto.visibilityCascade (CASCADE | NONE).
+        boolean visibilityChanged = false;
+        boolean visibilityValue = false;
+        if (dto.getIsVisibleToPublic() != null) {
+            boolean newValue = dto.getIsVisibleToPublic();
+            Boolean current = project.getIsVisibleToPublic();
+            if (current == null || current != newValue) {
+                changes.append("isVisibleToPublic: ").append(current).append(" -> ").append(newValue).append(" | ");
+                project.setIsVisibleToPublic(newValue);
+                visibilityChanged = true;
+            }
+            visibilityValue = newValue;
+        }
+
         touchUpdateAudit(project, authentication);
         Project saved = projectRepository.save(project);
+
+        // Cascade (must run AFTER save() so the project row already reflects the
+        // new flag — keeps project + media in sync if the cascade query fails
+        // and the transaction rolls back). The @Modifying UPDATE detaches the
+        // project from the persistence context (clearAutomatically=true), so
+        // build the response DTO BEFORE firing it — same pattern as the
+        // soft-trash cascade above.
+        ProjectResponseDTO response = toResponse(saved);
+
+        int cascadedAudios = 0, cascadedVideos = 0, cascadedImages = 0, cascadedTexts = 0;
+        boolean cascadeRequested = visibilityChanged
+                && dto.getIsVisibleToPublic() != null
+                && "CASCADE".equalsIgnoreCase(safeTrim(dto.getVisibilityCascade()));
+        if (cascadeRequested) {
+            Instant now = Instant.now();
+            String actor = resolveActorUsername(authentication);
+            cascadedAudios = audioRepository.updateVisibilityByProject(saved, visibilityValue, now, actor);
+            cascadedVideos = videoRepository.updateVisibilityByProject(saved, visibilityValue, now, actor);
+            cascadedImages = imageRepository.updateVisibilityByProject(saved, visibilityValue, now, actor);
+            cascadedTexts  = textRepository.updateVisibilityByProject(saved,  visibilityValue, now, actor);
+            if (cascadedAudios > 0) audioReadCache.evictAll();
+            if (cascadedVideos > 0) videoReadCache.evictAll();
+            if (cascadedImages > 0) imageReadCache.evictAll();
+            if (cascadedTexts  > 0) textReadCache.evictAll();
+            changes.append("visibilityCascade: ALL_MEDIA -> isPublic=").append(visibilityValue)
+                    .append(" (audios=").append(cascadedAudios)
+                    .append(" videos=").append(cascadedVideos)
+                    .append(" images=").append(cascadedImages)
+                    .append(" texts=").append(cascadedTexts)
+                    .append(") | ");
+        }
+
         readCache.evictAll();
         String detail = changes.isEmpty()
                 ? "Updated project (no field changes detected)"
                 : "Updated project: " + trimTrailingSeparator(changes.toString());
-        // Build DTO before REQUIRES_NEW audit suspends this session — see getByProjectCode.
-        ProjectResponseDTO response = toResponse(saved);
         auditService.record(saved, ProjectAuditAction.UPDATE, authentication, request, detail);
         return response;
+    }
+
+    private static String safeTrim(String s) {
+        return s == null ? null : s.trim();
     }
 
     /**
@@ -638,6 +690,7 @@ public class ProjectService {
                 .description(project.getDescription())
                 .tags(project.getTags() != null ? new ArrayList<>(project.getTags()) : null)
                 .keywords(project.getKeywords() != null ? new ArrayList<>(project.getKeywords()) : null)
+                .isVisibleToPublic(project.getIsVisibleToPublic())
                 .createdAt(project.getCreatedAt())
                 .updatedAt(project.getUpdatedAt())
                 .removedAt(project.getRemovedAt())
