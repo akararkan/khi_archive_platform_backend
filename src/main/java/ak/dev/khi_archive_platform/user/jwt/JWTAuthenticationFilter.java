@@ -4,6 +4,7 @@ import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponse;
 import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponses;
 import ak.dev.khi_archive_platform.common.exceptions.ErrorCategory;
 import ak.dev.khi_archive_platform.common.exceptions.ErrorCode;
+import ak.dev.khi_archive_platform.user.configs.AppCorsProperties;
 import com.auth0.jwt.exceptions.AlgorithmMismatchException;
 import com.auth0.jwt.exceptions.InvalidClaimException;
 import com.auth0.jwt.exceptions.JWTDecodeException;
@@ -64,6 +65,7 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
     private final TokenService tokenService;
     private final JwtCookieService jwtCookieService;
     private final ObjectMapper objectMapper;
+    private final AppCorsProperties corsProperties;
 
     /**
      * Public guest endpoints under {@code /api/guest/**} are fully token-free —
@@ -85,6 +87,11 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(@NonNull HttpServletRequest request,
                                     @NonNull HttpServletResponse response,
                                     @NonNull FilterChain filterChain) throws ServletException, IOException {
+
+        // Stamp CORS headers first so every short-circuit path (auth errors,
+        // token failures, unexpected exceptions) returns a response the browser
+        // can actually read instead of a generic CORS/network error.
+        applyCorsHeaders(request, response);
 
         try {
             // Allow OPTIONS requests to proceed (for CORS preflight)
@@ -230,6 +237,18 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
         Map<String, Object> safeDetails = details == null ? null : new LinkedHashMap<>(details);
         ApiErrorResponse payload = ApiErrorResponses.of(status, errorCode, category, message, hint, path, safeDetails);
         objectMapper.writeValue(response.getWriter(), payload);
+    }
+
+    // Stamps CORS headers on every short-circuit error response so the browser
+    // can read the JSON body instead of seeing a generic network/CORS error.
+    private void applyCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        if (origin == null) return;
+        if (corsProperties.getAllowedOriginsList().contains(origin)) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+            response.setHeader("Vary", "Origin");
+        }
     }
 
     private boolean hasText(String str) {
