@@ -15,9 +15,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import ak.dev.khi_archive_platform.user.exceptions.JwtAccessDeniedHandler;
 import ak.dev.khi_archive_platform.user.exceptions.JwtAuthenticationEntryPoint;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.config.Customizer;
 
 @Configuration
 @EnableWebSecurity
@@ -27,14 +25,13 @@ public class SecurityConfig {
 
     private final JWTAuthenticationFilter            jwtAuthenticationFilter;
     private final AuthenticationProvider             authenticationProvider;
-    private final AppCorsProperties                  corsProperties;
     private final JwtAuthenticationEntryPoint        jwtAuthenticationEntryPoint;
     private final JwtAccessDeniedHandler             jwtAccessDeniedHandler;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
 
                 // STATELESS for JWT — no HTTP session, no SecurityContext caching.
@@ -85,17 +82,4 @@ public class SecurityConfig {
         return http.build();
     }
 
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(corsProperties.getAllowedOriginsList());
-        configuration.setAllowedMethods(corsProperties.getAllowedMethodsList());
-        configuration.setAllowedHeaders(corsProperties.getAllowedHeadersList());
-        configuration.setAllowCredentials(corsProperties.isAllowCredentials());
-        configuration.setMaxAge(corsProperties.getMaxAge());
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
-    }
 }

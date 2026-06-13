@@ -4,20 +4,31 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Component
 @ConfigurationProperties(prefix = "app.cors")
 public class AppCorsProperties {
 
-    private String allowedOrigins = "http://localhost:5173,http://localhost:3000";
+    // These origins are always allowed regardless of what CORS_ALLOWED_ORIGINS env var says.
+    private static final List<String> ALWAYS_ALLOWED_ORIGINS = List.of(
+            "http://localhost:5173",
+            "http://localhost:3000",
+            "https://khi-archive-platform-frontend.vercel.app"
+    );
+
+    private String allowedOrigins = "";
     private String allowedMethods = "GET,POST,PUT,DELETE,OPTIONS,PATCH";
     private String allowedHeaders = "*";
     private boolean allowCredentials = true;
     private long maxAge = 3600;
 
     public List<String> getAllowedOriginsList() {
-        return splitCsv(allowedOrigins);
+        Set<String> merged = new LinkedHashSet<>(ALWAYS_ALLOWED_ORIGINS);
+        merged.addAll(splitCsv(allowedOrigins));
+        return List.copyOf(merged);
     }
 
     public List<String> getAllowedMethodsList() {
@@ -35,44 +46,18 @@ public class AppCorsProperties {
                 .toList();
     }
 
-    public String getAllowedOrigins() {
-        return allowedOrigins;
-    }
+    public String getAllowedOrigins() { return allowedOrigins; }
+    public void setAllowedOrigins(String allowedOrigins) { this.allowedOrigins = allowedOrigins; }
 
-    public void setAllowedOrigins(String allowedOrigins) {
-        this.allowedOrigins = allowedOrigins;
-    }
+    public String getAllowedMethods() { return allowedMethods; }
+    public void setAllowedMethods(String allowedMethods) { this.allowedMethods = allowedMethods; }
 
-    public String getAllowedMethods() {
-        return allowedMethods;
-    }
+    public String getAllowedHeaders() { return allowedHeaders; }
+    public void setAllowedHeaders(String allowedHeaders) { this.allowedHeaders = allowedHeaders; }
 
-    public void setAllowedMethods(String allowedMethods) {
-        this.allowedMethods = allowedMethods;
-    }
+    public boolean isAllowCredentials() { return allowCredentials; }
+    public void setAllowCredentials(boolean allowCredentials) { this.allowCredentials = allowCredentials; }
 
-    public String getAllowedHeaders() {
-        return allowedHeaders;
-    }
-
-    public void setAllowedHeaders(String allowedHeaders) {
-        this.allowedHeaders = allowedHeaders;
-    }
-
-    public boolean isAllowCredentials() {
-        return allowCredentials;
-    }
-
-    public void setAllowCredentials(boolean allowCredentials) {
-        this.allowCredentials = allowCredentials;
-    }
-
-    public long getMaxAge() {
-        return maxAge;
-    }
-
-    public void setMaxAge(long maxAge) {
-        this.maxAge = maxAge;
-    }
+    public long getMaxAge() { return maxAge; }
+    public void setMaxAge(long maxAge) { this.maxAge = maxAge; }
 }
-
