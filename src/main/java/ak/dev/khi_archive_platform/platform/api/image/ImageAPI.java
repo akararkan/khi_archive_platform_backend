@@ -5,11 +5,13 @@ import ak.dev.khi_archive_platform.platform.dto.image.ImageCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.image.ImageUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.items.VisibilityUpdateRequest;
 import ak.dev.khi_archive_platform.platform.exceptions.ImageValidationException;
 import ak.dev.khi_archive_platform.platform.service.image.ImageService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Valid;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -125,6 +127,22 @@ public class ImageAPI {
     ) {
         ImageUpdateRequestDTO dto = parseAndValidate(dataJson, ImageUpdateRequestDTO.class);
         return ResponseEntity.ok(imageService.update(imageCode, dto, imageFile, auth, request));
+    }
+
+    /**
+     * Lightweight visibility toggle. Body: {@code {"isPublic": true|false}}.
+     * Reuses {@code image:update} so anyone allowed to edit the record can
+     * flip its public flag. Idempotent: no-op when the flag already matches.
+     */
+    @PatchMapping(value = "/{imageCode}/visibility", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('image:update')")
+    public ResponseEntity<ImageResponseDTO> setVisibility(
+            @PathVariable String imageCode,
+            @Valid @RequestBody VisibilityUpdateRequest body,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(imageService.setVisibility(imageCode, body.isPublic(), auth, request));
     }
 
     /**

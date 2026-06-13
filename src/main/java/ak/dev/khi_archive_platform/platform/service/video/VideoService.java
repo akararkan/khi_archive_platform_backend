@@ -331,6 +331,34 @@ public class VideoService {
     }
 
     /**
+     * Lightweight {@code isPublic} toggle for the list-row visibility switch.
+     * Idempotent: setting the flag to its current value is a no-op (no save,
+     * no version bump, no audit row). Trashed records are not silently
+     * resurrected — they 404 like every other write path.
+     */
+    public VideoResponseDTO setVisibility(String videoCode,
+                                          boolean isPublic,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        String normalized = normalizeRequiredCode(videoCode, "Video code");
+        Video video = videoRepository.findByVideoCodeAndRemovedAtIsNull(normalized)
+                .orElseThrow(() -> new VideoNotFoundException("Video not found: " + videoCode));
+
+        boolean previous = Boolean.TRUE.equals(video.getIsPublic());
+        if (previous == isPublic) {
+            return toResponse(video);
+        }
+
+        video.setIsPublic(isPublic);
+        touchUpdateAudit(video, authentication);
+        Video saved = videoRepository.save(video);
+        readCache.evictAll();
+        videoAuditService.record(saved, VideoAuditAction.UPDATE, authentication, request,
+                "Updated video record: isPublic: " + previous + " -> " + isPublic);
+        return toResponse(saved);
+    }
+
+    /**
      * Soft delete (trash). The S3 file is preserved so the record can be
      * restored later. Admin-only via {@code video:delete} authority.
      */
@@ -481,10 +509,19 @@ public class VideoService {
         }
 
         BeanUtils.copyProperties(dto, video,
-                "projectCode", "physicalAvailability", "videoVersion");
+                "projectCode", "physicalAvailability", "videoVersion", "tags", "keywords");
 
         if (dto.getPhysicalAvailability() != null) video.setPhysicalAvailability(dto.getPhysicalAvailability());
         if (dto.getVideoVersion() != null) video.setVideoVersion(dto.getVideoVersion().toUpperCase(Locale.ROOT));
+
+        // Tags + keywords get canonicalised + deduped.
+        // See ak.dev.khi_archive_platform.platform.service.common.{Tags,Keywords}.
+        if (dto.getTags() != null) {
+            video.setTags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()));
+        }
+        if (dto.getKeywords() != null) {
+            video.setKeywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()));
+        }
     }
 
     VideoResponseDTO toResponse(Video video) {

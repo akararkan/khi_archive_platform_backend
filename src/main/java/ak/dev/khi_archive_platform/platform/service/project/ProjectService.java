@@ -108,8 +108,8 @@ public class ProjectService {
                 .person(person)
                 .categories(new ArrayList<>(categories))
                 .description(dto.getDescription())
-                .tags(dto.getTags() != null ? new ArrayList<>(dto.getTags()) : new ArrayList<>())
-                .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                .tags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()))
+                .keywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()))
                 .isVisibleToPublic(dto.getIsVisibleToPublic() != null ? dto.getIsVisibleToPublic() : Boolean.TRUE)
                 .build();
 
@@ -192,8 +192,8 @@ public class ProjectService {
                     .person(person)
                     .categories(new ArrayList<>(categories))
                     .description(dto.getDescription())
-                    .tags(dto.getTags() != null ? new ArrayList<>(dto.getTags()) : new ArrayList<>())
-                    .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                    .tags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()))
+                    .keywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()))
                     .isVisibleToPublic(dto.getIsVisibleToPublic() != null ? dto.getIsVisibleToPublic() : Boolean.TRUE)
                     .createdAt(now)
                     .updatedAt(now)
@@ -275,12 +275,14 @@ public class ProjectService {
             project.setCategories(new ArrayList<>(newCategories));
         }
         if (dto.getTags() != null) {
-            changes.append("tags: ").append(project.getTags()).append(" -> ").append(dto.getTags()).append(" | ");
-            project.setTags(new ArrayList<>(dto.getTags()));
+            List<String> canonical = ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags());
+            changes.append("tags: ").append(project.getTags()).append(" -> ").append(canonical).append(" | ");
+            project.setTags(canonical);
         }
         if (dto.getKeywords() != null) {
-            changes.append("keywords: ").append(project.getKeywords()).append(" -> ").append(dto.getKeywords()).append(" | ");
-            project.setKeywords(new ArrayList<>(dto.getKeywords()));
+            List<String> canonicalKeywords = ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords());
+            changes.append("keywords: ").append(project.getKeywords()).append(" -> ").append(canonicalKeywords).append(" | ");
+            project.setKeywords(canonicalKeywords);
         }
 
         // Visibility: project-level toggle (always honored when provided) plus

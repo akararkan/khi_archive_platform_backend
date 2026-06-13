@@ -49,7 +49,7 @@ public class CategoryService {
                 .categoryCode(categoryCode)
                 .name(dto.getName())
                 .description(dto.getDescription())
-                .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                .keywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()))
                 .build();
 
         touchCreateAudit(category, authentication);
@@ -88,7 +88,7 @@ public class CategoryService {
                     .categoryCode(code)
                     .name(dto.getName())
                     .description(dto.getDescription())
-                    .keywords(dto.getKeywords() != null ? new ArrayList<>(dto.getKeywords()) : new ArrayList<>())
+                    .keywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()))
                     .createdAt(now)
                     .updatedAt(now)
                     .createdBy(actor)
@@ -219,8 +219,9 @@ public class CategoryService {
             category.setDescription(dto.getDescription());
         }
         if (dto.getKeywords() != null) {
-            changes.append("keywords: ").append(category.getKeywords()).append(" -> ").append(dto.getKeywords()).append(" | ");
-            category.setKeywords(new ArrayList<>(dto.getKeywords()));
+            List<String> canonicalKeywords = ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords());
+            changes.append("keywords: ").append(category.getKeywords()).append(" -> ").append(canonicalKeywords).append(" | ");
+            category.setKeywords(canonicalKeywords);
         }
 
         touchUpdateAudit(category, authentication);

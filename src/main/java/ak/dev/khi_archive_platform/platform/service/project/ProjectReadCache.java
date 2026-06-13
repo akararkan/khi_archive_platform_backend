@@ -4,9 +4,12 @@ import ak.dev.khi_archive_platform.platform.dto.project.ProjectResponseDTO;
 import ak.dev.khi_archive_platform.platform.model.category.Category;
 import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
+import ak.dev.khi_archive_platform.platform.service.keyword.KeywordSuggestService;
+import ak.dev.khi_archive_platform.platform.service.tag.TagSuggestService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,7 +42,12 @@ public class ProjectReadCache {
                 .toList();
     }
 
-    @CacheEvict(value = ACTIVE_CACHE, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(value = ACTIVE_CACHE, allEntries = true),
+            // Project tag/keyword changes invalidate the cross-entity suggest caches.
+            @CacheEvict(value = TagSuggestService.CACHE, allEntries = true),
+            @CacheEvict(value = KeywordSuggestService.CACHE, allEntries = true)
+    })
     public void evictAll() {
         // Evicts every entry; called after any project mutation.
     }

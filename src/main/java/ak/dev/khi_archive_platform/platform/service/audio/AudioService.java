@@ -329,6 +329,34 @@ public class AudioService {
     }
 
     /**
+     * Lightweight {@code isPublic} toggle for the list-row visibility switch.
+     * Idempotent: setting the flag to its current value is a no-op (no save,
+     * no version bump, no audit row). Trashed records are not silently
+     * resurrected — they 404 like every other write path.
+     */
+    public AudioResponseDTO setVisibility(String audioCode,
+                                          boolean isPublic,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        String normalized = normalizeRequiredCode(audioCode, "Audio code");
+        Audio audio = audioRepository.findByAudioCodeAndRemovedAtIsNull(normalized)
+                .orElseThrow(() -> new AudioNotFoundException("Audio not found: " + audioCode));
+
+        boolean previous = Boolean.TRUE.equals(audio.getIsPublic());
+        if (previous == isPublic) {
+            return toResponse(audio);
+        }
+
+        audio.setIsPublic(isPublic);
+        touchUpdateAudit(audio, authentication);
+        Audio saved = audioRepository.save(audio);
+        readCache.evictAll();
+        audioAuditService.record(saved, AudioAuditAction.UPDATE, authentication, request,
+                "Updated audio record: isPublic: " + previous + " -> " + isPublic);
+        return toResponse(saved);
+    }
+
+    /**
      * Soft delete (trash). The S3 file is preserved so the record can be
      * restored later. Admin-only via {@code audio:delete} authority.
      */
@@ -484,7 +512,17 @@ public class AudioService {
                 "fullName", "pathInExternal", "autoPath",
                 "centralKurdishTitle", "romanizedTitle",
                 "recordingVenue", "dateCreated", "datePublished", "dateModified",
-                "lccClassification", "physicalAvailability");
+                "lccClassification", "physicalAvailability",
+                "tags", "keywords");
+
+        // Tags + keywords get canonicalised + deduped.
+        // See ak.dev.khi_archive_platform.platform.service.common.{Tags,Keywords}.
+        if (dto.getTags() != null) {
+            audio.setTags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()));
+        }
+        if (dto.getKeywords() != null) {
+            audio.setKeywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()));
+        }
 
         if (dto.getFullName() != null) audio.setFullname(dto.getFullName());
         if (dto.getPathInExternal() != null) audio.setPath_in_external(dto.getPathInExternal());

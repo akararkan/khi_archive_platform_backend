@@ -1,8 +1,6 @@
 package ak.dev.khi_archive_platform.user.api;
 
-import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 import ak.dev.khi_archive_platform.user.dto.LoginRequestDTO;
-import ak.dev.khi_archive_platform.user.dto.PasswordResetRequestDTO;
 import ak.dev.khi_archive_platform.user.dto.RegisterRequestDTO;
 import ak.dev.khi_archive_platform.user.jwt.JwtCookieService;
 import ak.dev.khi_archive_platform.user.jwt.Token;
@@ -13,9 +11,6 @@ import ak.dev.khi_archive_platform.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -65,26 +60,6 @@ public class UserAPI {
             HttpServletResponse response
     ) {
         return withAuthCookie(userService.login(dto, request), response);
-    }
-
-    // ── REQUEST PASSWORD-RESET TOKEN ─────────────────────────────────────────
-    @PostMapping("/reset-token")
-    public ResponseEntity<String> createResetToken(
-            @RequestParam
-            @NotBlank(message = "Email is required")
-            @Email(
-                regexp  = ValidationPatterns.EMAIL,
-                message = "Email must be a valid address with a domain (e.g. user@example.com)"
-            )
-            @Size(max = 160, message = "Email must not exceed 160 characters")
-            String email) {
-        return userService.createPasswordResetToken(email);
-    }
-
-    // ── RESET PASSWORD (requires token) ──────────────────────────────────────
-    @PostMapping("/reset-password")
-    public ResponseEntity<String> resetPassword(@Valid @RequestBody PasswordResetRequestDTO dto) {
-        return userService.resetPassword(dto);
     }
 
     // ── LOGOUT (invalidate current session / blacklist token) ─────────────────

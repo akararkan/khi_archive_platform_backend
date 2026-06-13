@@ -2,9 +2,11 @@ package ak.dev.khi_archive_platform.platform.service.category;
 
 import ak.dev.khi_archive_platform.platform.dto.category.CategoryResponseDTO;
 import ak.dev.khi_archive_platform.platform.repo.category.CategoryRepository;
+import ak.dev.khi_archive_platform.platform.service.keyword.KeywordSuggestService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,7 +34,11 @@ public class CategoryReadCache {
                 .toList();
     }
 
-    @CacheEvict(value = ACTIVE_CACHE, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(value = ACTIVE_CACHE, allEntries = true),
+            // Category keyword changes invalidate the cross-entity keyword-suggest cache.
+            @CacheEvict(value = KeywordSuggestService.CACHE, allEntries = true)
+    })
     public void evictAll() {
         // Evict all entries; called after any category mutation.
     }

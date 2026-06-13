@@ -1,6 +1,5 @@
 package ak.dev.khi_archive_platform.user.service;
 
-import ak.dev.khi_archive_platform.user.consts.ValidationPatterns;
 import ak.dev.khi_archive_platform.user.enums.Role;
 import ak.dev.khi_archive_platform.user.dto.*;
 import ak.dev.khi_archive_platform.user.exceptions.UserAlreadyExistsException;
@@ -13,9 +12,6 @@ import ak.dev.khi_archive_platform.user.repo.UserRepository;
 import ak.dev.khi_archive_platform.user.consts.SecurityConstants;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.jspecify.annotations.NonNull;
@@ -51,13 +47,11 @@ public class UserService implements UserDetailsService {
     private static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
     private static final List<String> ALLOWED_CONTENT_TYPES = Arrays.asList("image/jpeg", "image/png", "image/gif", "image/webp");
     private static final Duration PASSWORD_EXPIRY = Duration.ofDays(90);
-    private static final Duration RESET_TOKEN_EXPIRY = Duration.ofMinutes(30);
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final SessionRepository sessionRepository;
-    private final PasswordResetDeliveryService passwordResetDeliveryService;
     private final UserValidator userValidator;
 
     @Value("${app.upload.dir:uploads/profile-images}")
@@ -78,7 +72,7 @@ public class UserService implements UserDetailsService {
                     + SecurityConstants.LOCK_DURATION_MINUTES + " minute(s).");
         }
         if (user.isPasswordExpired()) {
-            throw new LockedException("Your password has expired. Please reset it.");
+            throw new LockedException("Your password has expired. Please change it from your profile (PUT /api/user/password).");
         }
         return user;
     }
@@ -88,8 +82,8 @@ public class UserService implements UserDetailsService {
     // =======================
     public ResponseEntity<Token> register(@Valid RegisterRequestDTO dto, MultipartFile profileImage, HttpServletRequest request) {
         try {
-            // ── Validate & normalize email ───────────────────────────────────
-            String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail());
+            // ── Validate & normalize email (self-register always lands as GUEST → MX check ON) ──
+            String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail(), Role.GUEST);
             dto.setEmail(normalizedEmail);
 
             // ── Validate password (complexity + personal-info + blocklist) ───
@@ -176,8 +170,7 @@ public class UserService implements UserDetailsService {
                     return ResponseEntity.status(HttpStatus.FORBIDDEN)
                             .body(new Token(null,
                                     "Account locked after " + MAX_FAILED_ATTEMPTS + " failed attempts. " +
-                                    "Please try again in " + SecurityConstants.LOCK_DURATION_MINUTES + " minute(s), " +
-                                    "or use 'Forgot password' to regain access immediately."));
+                                    "Please try again in " + SecurityConstants.LOCK_DURATION_MINUTES + " minute(s)."));
                 }
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(new Token(null,
@@ -189,7 +182,7 @@ public class UserService implements UserDetailsService {
 
             if (existingUser.isPasswordExpired()) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(new Token(null, "Your password has expired. Please reset it."));
+                        .body(new Token(null, "Your password has expired. Please contact an administrator to update it."));
             }
 
             String jwt = jwtTokenProvider.generateToken(existingUser, request);
@@ -253,90 +246,12 @@ public class UserService implements UserDetailsService {
     }
 
     // =======================
-    // Reset Password Token
-    // =======================
-    public ResponseEntity<String> createPasswordResetToken(
-            @NotBlank(message = "Email is required")
-            @Email(
-                regexp  = ValidationPatterns.EMAIL,
-                message = "Email must be a valid address with a domain (e.g. user@example.com)"
-            )
-            @Size(max = 160, message = "Email must not exceed 160 characters")
-            String email) {
-        try {
-            User user = findUserByUsernameOrEmail(email);
-            String token = UUID.randomUUID().toString();
-            user.setResetToken(token);
-            user.setResetTokenExpiration(Instant.now().plus(RESET_TOKEN_EXPIRY));
-            user.setUpdatedAt(Instant.now());
-            userRepository.save(user);
-            passwordResetDeliveryService.deliver(user, token);
-            return ResponseEntity.ok("If an account exists for that email, password reset instructions have been prepared.");
-        } catch (UserNotFoundException e) {
-            return ResponseEntity.ok("If an account exists for that email, password reset instructions have been prepared.");
-        } catch (Exception e) {
-            log.error("createPasswordResetToken error", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("An error occurred while creating reset token.");
-        }
-    }
-
-    // =======================
-    // Reset Password
-    // =======================
-    public ResponseEntity<String> resetPassword(@Valid PasswordResetRequestDTO req) {
-        try {
-            User user = findUserByUsernameOrEmail(req.getEmail());
-
-            if (req.getNewPassword() == null || !req.getNewPassword().equals(req.getConfirmPassword())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("New password and confirm password do not match.");
-            }
-
-            // ── Validate password (complexity + personal-info + blocklist) ───
-            userValidator.validatePassword(req.getNewPassword(), user.getUsername(), user.getEmail(), user.getName());
-
-            // ── Prevent reuse of the current password ────────────────────────
-            userValidator.validatePasswordNotReused(req.getNewPassword(), user.getPassword(), passwordEncoder);
-
-            if (user.getResetToken() == null || user.getResetTokenExpiration() == null) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("No reset token found. Please request a new reset token.");
-            }
-            if (!Objects.equals(user.getResetToken(), req.getResetToken())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid reset token.");
-            }
-            if (user.getResetTokenExpiration().isBefore(Instant.now())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                        .body("Reset token expired. Please request a new reset token.");
-            }
-
-            user.setPassword(passwordEncoder.encode(req.getNewPassword()));
-            user.setResetToken(null);
-            user.setResetTokenExpiration(null);
-            user.setPasswordExpiryDate(Instant.now().plus(PASSWORD_EXPIRY));
-            user.setUpdatedAt(Instant.now());
-            user.setIsLocked(false);
-            user.setFailedAttempts(0);
-            user.setLockTime(null);
-            userRepository.save(user);
-
-            return ResponseEntity.ok("Password has been successfully reset.");
-        } catch (UserNotFoundException e) {
-            return ResponseEntity.badRequest().body("Invalid reset request.");
-        } catch (Exception e) {
-            log.error("resetPassword error", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("An error occurred while resetting your password.");
-        }
-    }
-
-    // =======================
     // CRUD Operations (with image support)
     // =======================
     public UserResponseDTO createUser(@Valid UserCreateRequestDTO dto, MultipartFile profileImage) {
-        // ── Validate & normalize email ───────────────────────────────────────
-        String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail());
+        // ── Validate & normalize email (MX check only when target role is GUEST) ──
+        Role targetRole = dto.getRole() != null ? dto.getRole() : Role.GUEST;
+        String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail(), targetRole);
         dto.setEmail(normalizedEmail);
 
         // ── Validate password (complexity + personal-info + blocklist) ────────
@@ -399,8 +314,9 @@ public class UserService implements UserDetailsService {
             throw new UserAlreadyExistsException("Username is already taken.");
         }
         if (dto.getEmail() != null && !dto.getEmail().equals(u.getEmail())) {
-            // ── Validate & normalize the new email ───────────────────────────
-            String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail());
+            // ── Validate & normalize the new email (MX check only when target role is GUEST) ──
+            Role targetRole = dto.getRole() != null ? dto.getRole() : u.getRole();
+            String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail(), targetRole);
             dto.setEmail(normalizedEmail);
 
             if (userRepository.findByEmail(dto.getEmail()).isPresent()) {

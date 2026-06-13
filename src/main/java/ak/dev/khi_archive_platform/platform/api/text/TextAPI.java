@@ -5,11 +5,13 @@ import ak.dev.khi_archive_platform.platform.dto.text.TextCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.text.TextUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.items.VisibilityUpdateRequest;
 import ak.dev.khi_archive_platform.platform.exceptions.TextValidationException;
 import ak.dev.khi_archive_platform.platform.service.text.TextService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Valid;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -124,6 +126,22 @@ public class TextAPI {
     ) {
         TextUpdateRequestDTO dto = parseAndValidate(dataJson, TextUpdateRequestDTO.class);
         return ResponseEntity.ok(textService.update(textCode, dto, textFile, auth, request));
+    }
+
+    /**
+     * Lightweight visibility toggle. Body: {@code {"isPublic": true|false}}.
+     * Reuses {@code text:update} so anyone allowed to edit the record can
+     * flip its public flag. Idempotent: no-op when the flag already matches.
+     */
+    @PatchMapping(value = "/{textCode}/visibility", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('text:update')")
+    public ResponseEntity<TextResponseDTO> setVisibility(
+            @PathVariable String textCode,
+            @Valid @RequestBody VisibilityUpdateRequest body,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(textService.setVisibility(textCode, body.isPublic(), auth, request));
     }
 
     /**

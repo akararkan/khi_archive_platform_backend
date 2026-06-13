@@ -15,8 +15,7 @@ public class SecurityConstants {
     public static final String ROLE = "ROLE";
     public static final String[] PUBLIC_URL = {
         "/api/auth/admin/register",
-        "/api/auth/admin/login",
-        "/api/auth/admin/reset-password"
+        "/api/auth/admin/login"
     };
 
     // ── Account locking ───────────────────────────────────────────────────────

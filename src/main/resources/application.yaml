@@ -1,15 +1,15 @@
 spring:
   application:
-    name: khi_archive_platform_backend
+    name: khi_backend
 
   # ===============================
   # DATASOURCE (PostgreSQL)
   # ===============================
   datasource:
-    url: jdbc:postgresql://localhost:5432/khi_archive_platform_db
-    username: khi
-    password: ""
-    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}
+    username: ${PGUSER}
+    password: ${PGPASSWORD}
+
   # ===============================
   # JPA / HIBERNATE
   # ===============================
@@ -23,18 +23,8 @@ spring:
         format_sql: true
         use_sql_comments: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        # Batches lazy collection/association fetches into IN(?,?,...) queries.
-        # Eliminates N+1 across multi-collection entities (Image/Text/Video/Audio
-        # have 6+ child collections each). 1000 IDs/batch matches the page size
-        # we use for the cached getAll endpoints.
-        default_batch_fetch_size: 1000
         jdbc:
           time_zone: UTC
-          # Lets bulk-create / saveAll batch the INSERT statements instead of
-          # one round-trip per row.
-          batch_size: 100
-        order_inserts: true
-        order_updates: true
 
   # ===============================
   # WEB MVC / I18N
@@ -105,36 +95,53 @@ spring:
       use-key-prefix: true
       key-prefix: "khi:"
 
+  # ===============================
+  # OAUTH2 (Google)
+  # ===============================
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            client-name: Google
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://www.googleapis.com/oauth2/v3/userinfo
+            user-name-attribute: sub
+
 # ===============================
 # JWT (ENV SECRET ONLY)
 # ===============================
 jwt:
   secret: ${JWT_SECRET}
-  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
-  cookie-name: ${JWT_COOKIE_NAME:khi_auth_token}
-  cookie-secure: ${JWT_COOKIE_SECURE:true}
-  cookie-http-only: ${JWT_COOKIE_HTTP_ONLY:true}
-  cookie-same-site: ${JWT_COOKIE_SAME_SITE:None}
-  cookie-path: ${JWT_COOKIE_PATH:/}
-  cookie-max-age: ${JWT_COOKIE_MAX_AGE:86400}
+  expiration-ms: ${JWT_EXPIRATION_MS}
+  cookie-name: ${JWT_COOKIE_NAME}
+  cookie-secure: ${JWT_COOKIE_SECURE}  # Set to true in production (HTTPS)
+  cookie-http-only: ${JWT_COOKIE_HTTP_ONLY}
+  cookie-same-site: ${JWT_COOKIE_SAME_SITE}
+  cookie-path: ${JWT_COOKIE_PATH}
+  cookie-max-age: ${JWT_COOKIE_MAX_AGE}  # 24 hours in seconds
 
 # ===============================
 # APP CUSTOM CONFIG
 # ===============================
 app:
+  oauth2:
+    redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:5173/oauth2/redirect}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,https://khi-frontend-production.up.railway.app}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
     allowed-methods: GET,POST,PUT,DELETE,OPTIONS,PATCH
     allowed-headers: "*"
     allow-credentials: true
     max-age: 3600
-
-  # Loads seed-data/*.json on boot via SeedDataLoader. Idempotent — skips rows
-  # whose business code already exists, so leaving this on just adds a no-op
-  # pass on subsequent restarts.
-  seed:
-    load: ${APP_SEED_LOAD:true}
-    dir: ${APP_SEED_DIR:./seed-data}
 
 # ===============================
 # AWS S3
@@ -142,15 +149,13 @@ app:
 aws:
   s3:
     region: us-east-1
-    bucket: khi-archive-platform
-    base-folder: khi-archive-platform-folders
-    person-folder: persons
+    bucket: s3-khiwebsite
+    base-folder: khi-web-folders
 
 # ===============================
 # SERVER / TOMCAT LIMITS
 # ===============================
 server:
-  forward-headers-strategy: framework
   port: 8080
   error:
     include-message: always
@@ -170,8 +175,8 @@ server:
       cookie:
         name: KHI_SESSION
         http-only: true
-        secure: true          # HTTPS on Railway
-        same-site: Lax        # Allows cookie on auth redirects
+        secure: false  # Set to true in production (HTTPS)
+        same-site: Strict
         path: /
         max-age: 86400  # 24 hours
 
@@ -192,5 +197,3 @@ logging:
     org.springframework.data.redis: DEBUG
     org.springframework.cache: DEBUG
     org.springframework.jdbc: DEBUG
-
-kind: Application

@@ -339,6 +339,34 @@ public class ImageService {
     }
 
     /**
+     * Lightweight {@code isPublic} toggle for the list-row visibility switch.
+     * Idempotent: setting the flag to its current value is a no-op (no save,
+     * no version bump, no audit row). Trashed records are not silently
+     * resurrected — they 404 like every other write path.
+     */
+    public ImageResponseDTO setVisibility(String imageCode,
+                                          boolean isPublic,
+                                          Authentication authentication,
+                                          HttpServletRequest request) {
+        String normalized = normalizeRequiredCode(imageCode, "Image code");
+        Image image = imageRepository.findByImageCodeAndRemovedAtIsNull(normalized)
+                .orElseThrow(() -> new ImageNotFoundException("Image not found: " + imageCode));
+
+        boolean previous = Boolean.TRUE.equals(image.getIsPublic());
+        if (previous == isPublic) {
+            return toResponse(image);
+        }
+
+        image.setIsPublic(isPublic);
+        touchUpdateAudit(image, authentication);
+        Image saved = imageRepository.save(image);
+        readCache.evictAll();
+        imageAuditService.record(saved, ImageAuditAction.UPDATE, authentication, request,
+                "Updated image record: isPublic: " + previous + " -> " + isPublic);
+        return toResponse(saved);
+    }
+
+    /**
      * Soft delete (trash). The S3 file is preserved so the record can be
      * restored later. Admin-only via {@code image:delete} authority.
      */
@@ -489,10 +517,19 @@ public class ImageService {
         }
 
         BeanUtils.copyProperties(dto, image,
-                "projectCode", "physicalAvailability", "imageVersion");
+                "projectCode", "physicalAvailability", "imageVersion", "tags", "keywords");
 
         if (dto.getPhysicalAvailability() != null) image.setPhysicalAvailability(dto.getPhysicalAvailability());
         if (dto.getImageVersion() != null) image.setImageVersion(dto.getImageVersion().toUpperCase(Locale.ROOT));
+
+        // Tags + keywords get canonicalised + deduped.
+        // See ak.dev.khi_archive_platform.platform.service.common.{Tags,Keywords}.
+        if (dto.getTags() != null) {
+            image.setTags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()));
+        }
+        if (dto.getKeywords() != null) {
+            image.setKeywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()));
+        }
     }
 
     ImageResponseDTO toResponse(Image image) {

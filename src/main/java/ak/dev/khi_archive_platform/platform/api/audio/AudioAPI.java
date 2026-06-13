@@ -5,11 +5,13 @@ import ak.dev.khi_archive_platform.platform.dto.audio.AudioCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.items.VisibilityUpdateRequest;
 import ak.dev.khi_archive_platform.platform.exceptions.AudioValidationException;
 import ak.dev.khi_archive_platform.platform.service.audio.AudioService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Valid;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -124,6 +126,22 @@ public class AudioAPI {
     ) {
         AudioUpdateRequestDTO dto = parseAndValidate(dataJson, AudioUpdateRequestDTO.class);
         return ResponseEntity.ok(audioService.update(audioCode, dto, audioFile, auth, request));
+    }
+
+    /**
+     * Lightweight visibility toggle. Body: {@code {"isPublic": true|false}}.
+     * Reuses {@code audio:update} so anyone allowed to edit the record can
+     * flip its public flag. Idempotent: no-op when the flag already matches.
+     */
+    @PatchMapping(value = "/{audioCode}/visibility", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('audio:update')")
+    public ResponseEntity<AudioResponseDTO> setVisibility(
+            @PathVariable String audioCode,
+            @Valid @RequestBody VisibilityUpdateRequest body,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(audioService.setVisibility(audioCode, body.isPublic(), auth, request));
     }
 
     /**

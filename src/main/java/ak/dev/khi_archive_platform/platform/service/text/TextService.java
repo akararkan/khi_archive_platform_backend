@@ -328,6 +328,34 @@ public class TextService {
     }
 
     /**
+     * Lightweight {@code isPublic} toggle for the list-row visibility switch.
+     * Idempotent: setting the flag to its current value is a no-op (no save,
+     * no version bump, no audit row). Trashed records are not silently
+     * resurrected — they 404 like every other write path.
+     */
+    public TextResponseDTO setVisibility(String textCode,
+                                         boolean isPublic,
+                                         Authentication authentication,
+                                         HttpServletRequest request) {
+        String normalized = normalizeRequiredCode(textCode, "Text code");
+        Text text = textRepository.findByTextCodeAndRemovedAtIsNull(normalized)
+                .orElseThrow(() -> new TextNotFoundException("Text not found: " + textCode));
+
+        boolean previous = Boolean.TRUE.equals(text.getIsPublic());
+        if (previous == isPublic) {
+            return toResponse(text);
+        }
+
+        text.setIsPublic(isPublic);
+        touchUpdateAudit(text, authentication);
+        Text saved = textRepository.save(text);
+        readCache.evictAll();
+        textAuditService.record(saved, TextAuditAction.UPDATE, authentication, request,
+                "Updated text record: isPublic: " + previous + " -> " + isPublic);
+        return toResponse(saved);
+    }
+
+    /**
      * Soft delete (trash). The S3 file is preserved so the record can be
      * restored later. Admin-only via {@code text:delete} authority.
      */
@@ -478,10 +506,19 @@ public class TextService {
         }
 
         BeanUtils.copyProperties(dto, text,
-                "projectCode", "physicalAvailability", "textVersion");
+                "projectCode", "physicalAvailability", "textVersion", "tags", "keywords");
 
         if (dto.getPhysicalAvailability() != null) text.setPhysicalAvailability(dto.getPhysicalAvailability());
         if (dto.getTextVersion() != null) text.setTextVersion(dto.getTextVersion().toUpperCase(Locale.ROOT));
+
+        // Tags + keywords get canonicalised + deduped.
+        // See ak.dev.khi_archive_platform.platform.service.common.{Tags,Keywords}.
+        if (dto.getTags() != null) {
+            text.setTags(ak.dev.khi_archive_platform.platform.service.common.Tags.canonical(dto.getTags()));
+        }
+        if (dto.getKeywords() != null) {
+            text.setKeywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()));
+        }
     }
 
     TextResponseDTO toResponse(Text text) {

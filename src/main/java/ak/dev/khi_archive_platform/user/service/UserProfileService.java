@@ -77,17 +77,29 @@ public class UserProfileService {
     public UserResponseDTO updateProfile(String username, UpdateProfileRequestDTO dto) {
         User user = requireUser(username);
 
-        if (dto.getUsername() != null
-                && !dto.getUsername().equals(user.getUsername())
-                && userRepository.findByUsername(dto.getUsername()).isPresent()) {
-            throw new UserAlreadyExistsException("ناوی بەکارهێنەر پێشتر بەکارهاتووە");
-        }
-
-        if (dto.getUsername() != null && !dto.getUsername().isBlank()) {
+        // ── Username change ──────────────────────────────────────────────────
+        if (dto.getUsername() != null && !dto.getUsername().isBlank()
+                && !dto.getUsername().equals(user.getUsername())) {
+            if (userRepository.findByUsername(dto.getUsername()).isPresent()) {
+                throw new UserAlreadyExistsException("ناوی بەکارهێنەر پێشتر بەکارهاتووە");
+            }
             user.setUsername(dto.getUsername());
         }
-        if (dto.getName() != null) {
+
+        // ── Display name change ─────────────────────────────────────────────
+        if (dto.getName() != null && !dto.getName().isBlank()) {
             user.setName(dto.getName());
+        }
+
+        // ── Email change (normalize + uniqueness check) ─────────────────────
+        // MX check only kicks in when the user being updated is a GUEST.
+        if (dto.getEmail() != null && !dto.getEmail().isBlank()
+                && !dto.getEmail().equalsIgnoreCase(user.getEmail())) {
+            String normalizedEmail = userValidator.validateAndNormalizeEmail(dto.getEmail(), user.getRole());
+            if (userRepository.findByEmail(normalizedEmail).isPresent()) {
+                throw new UserAlreadyExistsException("ئەم ئیمەیڵە پێشتر بەکارهاتووە");
+            }
+            user.setEmail(normalizedEmail);
         }
 
         user.setUpdatedAt(Instant.now());

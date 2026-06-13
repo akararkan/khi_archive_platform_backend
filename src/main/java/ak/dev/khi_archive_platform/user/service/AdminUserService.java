@@ -336,7 +336,10 @@ public class AdminUserService {
     public UserAdminDTO createUserAsAdmin(UserCreateRequestDTO dto,
                                           Authentication auth,
                                           HttpServletRequest request) {
-        String email = userValidator.validateAndNormalizeEmail(dto.getEmail());
+        // MX check only when admin is provisioning a GUEST; corporate EMPLOYEE/ADMIN
+        // emails bypass the DNS gate.
+        Role targetRole = dto.getRole() != null ? dto.getRole() : Role.GUEST;
+        String email = userValidator.validateAndNormalizeEmail(dto.getEmail(), targetRole);
         userValidator.validatePassword(dto.getPassword(), dto.getUsername(), email, dto.getName());
 
         if (userRepository.findByUsername(dto.getUsername()).isPresent()) {
@@ -418,7 +421,9 @@ public class AdminUserService {
         }
 
         if (dto.getEmail() != null) {
-            String normalised = userValidator.validateAndNormalizeEmail(dto.getEmail());
+            // MX check only when the target user is (or is becoming) a GUEST.
+            Role targetRole = dto.getRole() != null ? dto.getRole() : user.getRole();
+            String normalised = userValidator.validateAndNormalizeEmail(dto.getEmail(), targetRole);
             if (!normalised.equals(user.getEmail())) {
                 if (userRepository.findByEmail(normalised).isPresent()) {
                     throw new UserAlreadyExistsException("Email is already registered.");

@@ -5,11 +5,13 @@ import ak.dev.khi_archive_platform.platform.dto.video.VideoCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.items.VisibilityUpdateRequest;
 import ak.dev.khi_archive_platform.platform.exceptions.VideoValidationException;
 import ak.dev.khi_archive_platform.platform.service.video.VideoService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Valid;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -125,6 +127,22 @@ public class VideoAPI {
     ) {
         VideoUpdateRequestDTO dto = parseAndValidate(dataJson, VideoUpdateRequestDTO.class);
         return ResponseEntity.ok(videoService.update(videoCode, dto, videoFile, auth, request));
+    }
+
+    /**
+     * Lightweight visibility toggle. Body: {@code {"isPublic": true|false}}.
+     * Reuses {@code video:update} so anyone allowed to edit the record can
+     * flip its public flag. Idempotent: no-op when the flag already matches.
+     */
+    @PatchMapping(value = "/{videoCode}/visibility", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAuthority('video:update')")
+    public ResponseEntity<VideoResponseDTO> setVisibility(
+            @PathVariable String videoCode,
+            @Valid @RequestBody VisibilityUpdateRequest body,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        return ResponseEntity.ok(videoService.setVisibility(videoCode, body.isPublic(), auth, request));
     }
 
     /**

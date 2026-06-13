@@ -87,17 +87,6 @@ public class User implements Serializable, UserDetails {
     @Comment("Whether the account is active and allowed to sign in")
     private Boolean isActivated = true;
 
-    // ===== Password Reset =====
-    @JsonIgnore
-    @Column(name = "reset_token", length = 120)
-    @Comment("Temporary token used for password reset flow")
-    private String resetToken;
-
-    @JsonIgnore
-    @Column(name = "reset_token_expiration")
-    @Comment("Expiration time of the password reset token")
-    private Instant resetTokenExpiration;
-
     // ===== Audit =====
     @Column(name = "created_at")
     @Comment("Timestamp when the user record was created")

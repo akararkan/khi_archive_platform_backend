@@ -61,9 +61,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/auth/register",
                                 "/api/auth/register-with-image",
-                                "/api/auth/login",
-                                "/api/auth/reset-token",
-                                "/api/auth/reset-password"
+                                "/api/auth/login"
                         ).permitAll()
 
                         // ── Public guest browse/search (no token required) ────────

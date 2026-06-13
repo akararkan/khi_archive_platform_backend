@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.project;
 import ak.dev.khi_archive_platform.platform.dto.project.ProjectCreateRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.project.ProjectResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.project.ProjectUpdateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.project.ProjectVisibilityUpdateRequest;
 import ak.dev.khi_archive_platform.platform.service.project.ProjectService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -78,6 +79,30 @@ public class ProjectAPI {
             Authentication auth,
             HttpServletRequest request
     ) {
+        return ResponseEntity.ok(projectService.update(projectCode, dto, auth, request));
+    }
+
+    /**
+     * Lightweight visibility toggle for a project (collection). Body:
+     * {@code {"isVisibleToPublic": true|false, "visibilityCascade": "CASCADE"|"NONE"}}.
+     * {@code visibilityCascade} is optional and defaults to {@code NONE} —
+     * which is enough to hide a collection from guests, since guests must see
+     * both the project flag and the per-media {@code isPublic} flag as true.
+     * Internally delegates to the full update path so cascade + audit + cache
+     * eviction stay identical to the long-form PATCH.
+     */
+    @PatchMapping("/{projectCode}/visibility")
+    @PreAuthorize("hasAuthority('project:update')")
+    public ResponseEntity<ProjectResponseDTO> setVisibility(
+            @PathVariable String projectCode,
+            @Valid @RequestBody ProjectVisibilityUpdateRequest body,
+            Authentication auth,
+            HttpServletRequest request
+    ) {
+        ProjectUpdateRequestDTO dto = ProjectUpdateRequestDTO.builder()
+                .isVisibleToPublic(body.isVisibleToPublic())
+                .visibilityCascade(body.visibilityCascade())
+                .build();
         return ResponseEntity.ok(projectService.update(projectCode, dto, auth, request));
     }
 

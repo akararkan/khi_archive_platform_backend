@@ -1,6 +1,13 @@
 package ak.dev.khi_archive_platform.user.jwt;
 
 import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponse;
+import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponses;
+import ak.dev.khi_archive_platform.common.exceptions.ErrorCategory;
+import ak.dev.khi_archive_platform.common.exceptions.ErrorCode;
+import com.auth0.jwt.exceptions.AlgorithmMismatchException;
+import com.auth0.jwt.exceptions.InvalidClaimException;
+import com.auth0.jwt.exceptions.JWTDecodeException;
+import com.auth0.jwt.exceptions.SignatureVerificationException;
 import com.auth0.jwt.exceptions.TokenExpiredException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
@@ -23,13 +30,29 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static ak.dev.khi_archive_platform.user.consts.SecurityConstants.*;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 
+/**
+ * Authenticates each request from the JWT carried either in the
+ * {@code Authorization: Bearer …} header or the auth cookie.
+ *
+ * <p>On the failure path the filter classifies the underlying auth0 exception
+ * into a specific {@link ErrorCode} so the frontend can tell <em>why</em>
+ * authentication failed and react accordingly:</p>
+ * <ul>
+ *   <li>{@code TOKEN_EXPIRED} — session has elapsed; prompt to log in again.</li>
+ *   <li>{@code TOKEN_REVOKED} — token blacklisted (logout / forced session kill).</li>
+ *   <li>{@code TOKEN_INVALID_SIGNATURE} — tampered or wrong-key token.</li>
+ *   <li>{@code TOKEN_MALFORMED} — non-JWT garbage in the header/cookie.</li>
+ *   <li>{@code TOKEN_INVALID} — any other auth0 verification failure.</li>
+ * </ul>
+ */
 @Component
 @RequiredArgsConstructor
 public class JWTAuthenticationFilter extends OncePerRequestFilter {
@@ -55,9 +78,7 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
         return uri.startsWith("/api/guest/")
                 || uri.equals("/api/auth/login")
                 || uri.equals("/api/auth/register")
-                || uri.equals("/api/auth/register-with-image")
-                || uri.equals("/api/auth/reset-token")
-                || uri.equals("/api/auth/reset-password");
+                || uri.equals("/api/auth/register-with-image");
     }
 
     @Override
@@ -75,31 +96,88 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
 
             String token = resolveToken(request);
             if (!hasText(token)) {
+                // No token present — let downstream filters decide. The auth
+                // entry-point produces a uniform 401 if the endpoint is protected.
                 filterChain.doFilter(request, response);
                 return;
             }
             String username;
 
             try {
-                // This will throw TokenExpiredException if expired
+                // This will throw a specific auth0 exception for each failure mode.
                 username = jwtTokenProvider.getSubject(token);
             } catch (TokenExpiredException ex) {
-                logger.warn("Token expired for request: {}", request.getRequestURI());
+                logger.warn("JWT expired for request: {}", request.getRequestURI());
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_EXPIRED", "Session expired, please login again", request.getRequestURI());
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_EXPIRED, ErrorCategory.AUTHENTICATION,
+                        "Your session has expired.",
+                        "Sign in again to continue.",
+                        request.getRequestURI(),
+                        Map.of("reason", "expired"));
+                return;
+            } catch (SignatureVerificationException ex) {
+                logger.warn("JWT signature mismatch for request: {}", request.getRequestURI());
+                jwtCookieService.clearAuthCookie(response);
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
+                        "Token signature is invalid.",
+                        "Sign in again to obtain a fresh token.",
+                        request.getRequestURI(),
+                        Map.of("reason", "signature_mismatch"));
+                return;
+            } catch (AlgorithmMismatchException ex) {
+                logger.warn("JWT algorithm mismatch for request: {}", request.getRequestURI());
+                jwtCookieService.clearAuthCookie(response);
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
+                        "Token uses an unexpected signing algorithm.",
+                        "Sign in again to obtain a fresh token.",
+                        request.getRequestURI(),
+                        Map.of("reason", "algorithm_mismatch"));
+                return;
+            } catch (InvalidClaimException ex) {
+                logger.warn("JWT claim invalid for request: {} — {}", request.getRequestURI(), ex.getMessage());
+                jwtCookieService.clearAuthCookie(response);
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
+                        "Token contains an invalid claim.",
+                        "Sign in again to obtain a fresh token.",
+                        request.getRequestURI(),
+                        Map.of("reason", "invalid_claim"));
+                return;
+            } catch (JWTDecodeException ex) {
+                logger.warn("JWT could not be decoded for request: {}", request.getRequestURI());
+                jwtCookieService.clearAuthCookie(response);
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_MALFORMED, ErrorCategory.AUTHENTICATION,
+                        "Token is malformed.",
+                        "Clear the auth cookie / Authorization header and sign in again.",
+                        request.getRequestURI(),
+                        Map.of("reason", "malformed"));
                 return;
             } catch (Exception ex) {
-                logger.error("Invalid token", ex);
+                logger.error("Invalid JWT for request: {}", request.getRequestURI(), ex);
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.FORBIDDEN, "INVALID_TOKEN", "Invalid token", request.getRequestURI());
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
+                        "Token verification failed.",
+                        "Sign in again to obtain a fresh token.",
+                        request.getRequestURI(),
+                        null);
                 return;
             }
 
             // Check if blacklisted (session invalidated/logout)
             if (tokenService.isTokenBlacklisted(token)) {
-                logger.warn("Token blacklisted for user: {}", username);
+                logger.warn("Blacklisted token presented for user: {}", username);
                 jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED, "TOKEN_REVOKED", "Session invalidated, please login again", request.getRequestURI());
+                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                        ErrorCode.TOKEN_REVOKED, ErrorCategory.AUTHENTICATION,
+                        "Your session has been invalidated.",
+                        "Sign in again to continue.",
+                        request.getRequestURI(),
+                        Map.of("reason", "revoked"));
                 return;
             }
 
@@ -126,25 +204,32 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
 
         } catch (Exception ex) {
             logger.error("Unexpected error in JWT filter", ex);
-            sendErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR, "SERVER_ERROR", "Internal server error", request.getRequestURI());
+            sendErrorResponse(response, HttpStatus.INTERNAL_SERVER_ERROR,
+                    ErrorCode.INTERNAL_SERVER_ERROR, ErrorCategory.SERVER_ERROR,
+                    "An unexpected authentication error occurred.",
+                    "Retry shortly; if the problem persists, contact support with the traceId.",
+                    request.getRequestURI(),
+                    null);
             return;
         }
 
         filterChain.doFilter(request, response);
     }
 
-    private void sendErrorResponse(HttpServletResponse response, HttpStatus status, String error, String message, String path) throws IOException {
+    private void sendErrorResponse(HttpServletResponse response,
+                                   HttpStatus status,
+                                   String errorCode,
+                                   ErrorCategory category,
+                                   String message,
+                                   String hint,
+                                   String path,
+                                   Map<String, Object> details) throws IOException {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
-        objectMapper.writeValue(response.getWriter(), new ApiErrorResponse(
-                Instant.now(),
-                status.value(),
-                error,
-                message,
-                path,
-                null
-        ));
+        Map<String, Object> safeDetails = details == null ? null : new LinkedHashMap<>(details);
+        ApiErrorResponse payload = ApiErrorResponses.of(status, errorCode, category, message, hint, path, safeDetails);
+        objectMapper.writeValue(response.getWriter(), payload);
     }
 
     private boolean hasText(String str) {
