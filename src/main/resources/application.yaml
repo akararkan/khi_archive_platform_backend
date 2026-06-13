@@ -142,5 +142,5 @@ logging:
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.web.servlet: DEBUG
     org.springframework.security: INFO
-org.springframework.cache: DEBUG
+    org.springframework.cache: DEBUG
     org.springframework.jdbc: DEBUG
