@@ -47,8 +47,8 @@ spring:
   # ===============================
   jackson:
     serialization:
-      indent_output: true
-      default-property-inclusion: non_null
+      indent-output: true
+    default-property-inclusion: non_null
     time-zone: Asia/Baghdad
   # ===============================
   # DEVTOOLS
