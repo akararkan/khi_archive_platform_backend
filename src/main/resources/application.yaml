@@ -68,27 +68,10 @@ spring:
       max-request-size: 1GB
       file-size-threshold: 2MB
   # ===============================
-  # REDIS CACHE CONFIGURATION
+  # CAFFEINE IN-MEMORY CACHE
   # ===============================
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
-      timeout: 2000ms
-      lettuce:
-        pool:
-          max-active: 8
-          max-idle: 8
-          min-idle: 0
-          max-wait: -1ms
   cache:
-    type: redis
-    redis:
-      time-to-live: 600000
-      cache-null-values: false
-      use-key-prefix: true
-      key-prefix: "khi:"
+    type: caffeine
 # ===============================
 # JWT (ENV SECRET ONLY)
 # ===============================
@@ -159,6 +142,5 @@ logging:
     org.hibernate.orm.jdbc.bind: TRACE
     org.springframework.web.servlet: DEBUG
     org.springframework.security: INFO
-    org.springframework.data.redis: DEBUG
-    org.springframework.cache: DEBUG
+org.springframework.cache: DEBUG
     org.springframework.jdbc: DEBUG

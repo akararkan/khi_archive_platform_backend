@@ -19,6 +19,7 @@ import ak.dev.khi_archive_platform.user.repo.SessionRepository;
 import ak.dev.khi_archive_platform.user.repo.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -94,6 +95,7 @@ public class AdminUserService {
 
     // ─── Role ───────────────────────────────────────────────────────────────
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO changeRole(Long userId, RoleChangeRequestDTO dto,
                                    Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
@@ -122,6 +124,7 @@ public class AdminUserService {
 
     // ─── Permissions ────────────────────────────────────────────────────────
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO grantPermissions(Long userId, PermissionsChangeRequestDTO dto,
                                          Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
@@ -174,6 +177,7 @@ public class AdminUserService {
         return toDto(saved);
     }
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO revokePermissions(Long userId, PermissionsChangeRequestDTO dto,
                                           Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
@@ -214,6 +218,7 @@ public class AdminUserService {
 
     // ─── Activate / deactivate ──────────────────────────────────────────────
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO setActivated(Long userId, boolean activate,
                                      Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
@@ -239,6 +244,7 @@ public class AdminUserService {
 
     // ─── Lock / unlock ──────────────────────────────────────────────────────
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO lock(Long userId, Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: id=" + userId));
@@ -258,6 +264,7 @@ public class AdminUserService {
         return toDto(saved);
     }
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO unlock(Long userId, Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: id=" + userId));
@@ -279,6 +286,7 @@ public class AdminUserService {
     }
 
     /** Clear failed-login counter without changing lock state. */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO resetFailedAttempts(Long userId, Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: id=" + userId));
@@ -333,6 +341,7 @@ public class AdminUserService {
      * column captures: target username + id, role assigned, activated flag, and
      * the seeded permission set.
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO createUserAsAdmin(UserCreateRequestDTO dto,
                                           Authentication auth,
                                           HttpServletRequest request) {
@@ -398,6 +407,7 @@ public class AdminUserService {
      * email=old@a -> new@b; role=GUEST -> EMPLOYEE; password=(reset)"}.
      * Password values are never recorded — only the fact of a reset.
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserAdminDTO updateUserAsAdmin(Long userId, UserUpdateRequestDTO dto,
                                           Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
@@ -503,6 +513,7 @@ public class AdminUserService {
      *       system out of every {@code /api/admin} endpoint.</li>
      * </ul>
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public void deleteUser(Long userId, Authentication auth, HttpServletRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found: id=" + userId));

@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j2;
 import org.jspecify.annotations.NonNull;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +63,7 @@ public class UserService implements UserDetailsService {
     // UserDetailsService
     // =======================
     @Override
+    @Cacheable(value = "users:details", key = "#username")
     public UserDetails loadUserByUsername(@NonNull String username) throws UsernameNotFoundException {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() ->
@@ -212,6 +215,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update only the profile image for a user
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserResponseDTO updateProfileImage(Long userId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Profile image cannot be empty");
@@ -234,6 +238,7 @@ public class UserService implements UserDetailsService {
     /**
      * Remove profile image (revert to null)
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserResponseDTO removeProfileImage(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
@@ -305,6 +310,7 @@ public class UserService implements UserDetailsService {
     /**
      * Update user - now uses DTO and optional image file
      */
+    @CacheEvict(value = "users:details", allEntries = true)
     public UserResponseDTO updateUser(Long userId, @Valid UserUpdateRequestDTO dto, MultipartFile newProfileImage) {
         User u = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
@@ -364,6 +370,7 @@ public class UserService implements UserDetailsService {
         return toResponse(userRepository.save(u));
     }
 
+    @CacheEvict(value = "users:details", allEntries = true)
     public void deleteUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + userId));
