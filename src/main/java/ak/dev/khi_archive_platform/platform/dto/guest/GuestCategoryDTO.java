@@ -26,4 +26,9 @@ public class GuestCategoryDTO implements Serializable {
     private List<String> keywords;
     private long projectCount;
     private Instant createdAt;
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

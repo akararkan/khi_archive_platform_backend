@@ -49,4 +49,9 @@ public class GuestProjectDTO implements Serializable {
         private long images;
         public long total() { return audios + videos + texts + images; }
     }
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

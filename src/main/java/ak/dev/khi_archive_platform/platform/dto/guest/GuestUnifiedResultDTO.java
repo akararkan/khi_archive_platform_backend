@@ -56,6 +56,11 @@ public class GuestUnifiedResultDTO implements Serializable {
     private GuestTextDTO text;
     private GuestImageDTO image;
 
+    // ── Trending metadata (separate from relevance score above) ───────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -84,4 +84,9 @@ public class GuestTextDTO implements Serializable {
 
     /** Public S3 URL of the text asset. */
     private String textFileUrl;
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

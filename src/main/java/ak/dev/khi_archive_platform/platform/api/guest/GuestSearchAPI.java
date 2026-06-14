@@ -9,10 +9,12 @@ import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestTextDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestTrendingDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestUnifiedResultDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestVideoDTO;
 import ak.dev.khi_archive_platform.platform.enums.Gender;
 import ak.dev.khi_archive_platform.platform.service.guest.GuestSearchService;
+import ak.dev.khi_archive_platform.platform.service.guest.GuestTrendingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -47,7 +49,26 @@ import java.util.Map;
 @RequestMapping("/api/guest")
 public class GuestSearchAPI {
 
-    private final GuestSearchService guestSearchService;
+    private final GuestSearchService  guestSearchService;
+    private final GuestTrendingService guestTrendingService;
+
+    // ─── Trending ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Returns the current trending items and top searches.
+     * Cached server-side for 5 minutes. Call on every page load.
+     *
+     * Frontend usage:
+     *   trendingItems[0..4]        → "Trending Now" hero carousel
+     *   trendingItems with rank<=10 → show "🔥 Trending" badge on any card
+     *   trendingByType.audio[0..4] → "Trending Audios" horizontal row
+     *   topSearches[0..9]          → "Popular Searches" tag cloud / chips
+     *   generatedAt                → "Updated X minutes ago" tooltip
+     */
+    @GetMapping("/trending")
+    public ResponseEntity<GuestTrendingDTO> trending() {
+        return ResponseEntity.ok(guestTrendingService.getTrending());
+    }
 
     // ─── Universal search ─────────────────────────────────────────────────────────
 

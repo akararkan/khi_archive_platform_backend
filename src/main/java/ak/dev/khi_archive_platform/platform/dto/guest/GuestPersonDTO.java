@@ -38,4 +38,9 @@ public class GuestPersonDTO implements Serializable {
     private String placeOfDeath;
     private String description;
     private long projectCount;
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

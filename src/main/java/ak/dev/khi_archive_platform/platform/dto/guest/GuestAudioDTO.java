@@ -85,4 +85,9 @@ public class GuestAudioDTO implements Serializable {
 
     /** Public S3 URL of the audio asset. */
     private String audioFileUrl;
+
+    // ── Trending metadata (injected after search, null when not trending) ──
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

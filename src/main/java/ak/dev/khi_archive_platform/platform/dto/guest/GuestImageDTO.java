@@ -81,4 +81,9 @@ public class GuestImageDTO implements Serializable {
 
     /** Public S3 URL of the image asset. */
     private String imageFileUrl;
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }

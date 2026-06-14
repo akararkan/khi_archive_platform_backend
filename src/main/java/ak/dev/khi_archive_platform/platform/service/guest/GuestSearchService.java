@@ -85,6 +85,7 @@ public class GuestSearchService {
     private final AudioRepository audioRepository;
     private final VideoRepository videoRepository;
     private final TextRepository textRepository;
+    private final GuestTrendingService trendingService;
     private final ImageRepository imageRepository;
 
     static final int DEFAULT_LIMIT = 50;
@@ -109,6 +110,7 @@ public class GuestSearchService {
         if (norm == null) {
             return GuestGlobalSearchDTO.builder().query("").build();
         }
+        trendingService.logSearch(norm);
         String like = MediaSearchSqlBuilder.escapeLike(norm);
 
         List<Project> projectHits = projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
@@ -200,13 +202,17 @@ public class GuestSearchService {
             filtered.sort(cmp);
         }
 
-        return paginate(filtered, pageable, p -> GuestMapper.toProject(p, mediaCounts(p)));
+        return stampPage(paginate(filtered, pageable, p -> GuestMapper.toProject(p, mediaCounts(p))),
+                "project", GuestProjectDTO::getProjectCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestProjectDTO> getProjectByCode(String projectCode) {
         return projectRepository.findByProjectCodeAndRemovedAtIsNull(projectCode)
-                .map(p -> GuestMapper.toProject(p, mediaCounts(p)));
+                .map(p -> {
+                    trendingService.logView("project", projectCode);
+                    return GuestMapper.toProject(p, mediaCounts(p));
+                });
     }
 
     @Transactional(readOnly = true)
@@ -255,14 +261,19 @@ public class GuestSearchService {
             source.sort(Comparator.comparing(Category::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         }
 
-        return paginate(source, pageable,
-                c -> GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c)));
+        return stampPage(
+                paginate(source, pageable,
+                        c -> GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c))),
+                "category", GuestCategoryDTO::getCategoryCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestCategoryDTO> getCategoryByCode(String categoryCode) {
         return categoryRepository.findByCategoryCodeAndRemovedAtIsNull(categoryCode)
-                .map(c -> GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c)));
+                .map(c -> {
+                    trendingService.logView("category", categoryCode);
+                    return GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c));
+                });
     }
 
     @Transactional(readOnly = true)
@@ -274,7 +285,8 @@ public class GuestSearchService {
                         && p.getCategories().stream().anyMatch(c -> Objects.equals(c.getId(), cat.getId())))
                 .sorted(Comparator.comparing(Project::getProjectName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
                 .toList();
-        return paginate(rows, pageable, p -> GuestMapper.toProject(p, mediaCounts(p)));
+        return stampPage(paginate(rows, pageable, p -> GuestMapper.toProject(p, mediaCounts(p))),
+                "project", GuestProjectDTO::getProjectCode, GuestSearchService::applyMark);
     }
 
     // ─── Persons ──────────────────────────────────────────────────────────────────
@@ -304,14 +316,19 @@ public class GuestSearchService {
             filtered.sort(Comparator.comparing(Person::getFullName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         }
 
-        return paginate(filtered, pageable,
-                p -> GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p)));
+        return stampPage(
+                paginate(filtered, pageable,
+                        p -> GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p))),
+                "person", GuestPersonDTO::getPersonCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestPersonDTO> getPersonByCode(String personCode) {
         return personRepository.findByPersonCodeAndRemovedAtIsNull(personCode)
-                .map(p -> GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p)));
+                .map(p -> {
+                    trendingService.logView("person", personCode);
+                    return GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p));
+                });
     }
 
     @Transactional(readOnly = true)
@@ -320,7 +337,8 @@ public class GuestSearchService {
         if (person == null) return Page.empty(pageable);
         List<Project> rows = projectRepository.findAllByPersonAndRemovedAtIsNull(person);
         rows.sort(Comparator.comparing(Project::getProjectName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
-        return paginate(rows, pageable, p -> GuestMapper.toProject(p, mediaCounts(p)));
+        return stampPage(paginate(rows, pageable, p -> GuestMapper.toProject(p, mediaCounts(p))),
+                "project", GuestProjectDTO::getProjectCode, GuestSearchService::applyMark);
     }
 
     // ─── Audios ───────────────────────────────────────────────────────────────────
@@ -423,14 +441,18 @@ public class GuestSearchService {
             filtered.sort(cmp);
         }
 
-        return paginate(filtered, pageable, GuestMapper::toAudio);
+        return stampPage(paginate(filtered, pageable, GuestMapper::toAudio),
+                "audio", GuestAudioDTO::getAudioCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestAudioDTO> getAudioByCode(String audioCode) {
         return audioRepository.findByAudioCodeAndRemovedAtIsNull(audioCode)
                 .filter(a -> Boolean.TRUE.equals(a.getIsPublic()))
-                .map(GuestMapper::toAudio);
+                .map(a -> {
+                    trendingService.logView("audio", audioCode);
+                    return GuestMapper.toAudio(a);
+                });
     }
 
     // ─── Videos ───────────────────────────────────────────────────────────────────
@@ -533,14 +555,18 @@ public class GuestSearchService {
             filtered.sort(cmp);
         }
 
-        return paginate(filtered, pageable, GuestMapper::toVideo);
+        return stampPage(paginate(filtered, pageable, GuestMapper::toVideo),
+                "video", GuestVideoDTO::getVideoCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestVideoDTO> getVideoByCode(String videoCode) {
         return videoRepository.findByVideoCodeAndRemovedAtIsNull(videoCode)
                 .filter(v -> Boolean.TRUE.equals(v.getIsPublic()))
-                .map(GuestMapper::toVideo);
+                .map(v -> {
+                    trendingService.logView("video", videoCode);
+                    return GuestMapper.toVideo(v);
+                });
     }
 
     // ─── Texts ────────────────────────────────────────────────────────────────────
@@ -640,14 +666,18 @@ public class GuestSearchService {
             filtered.sort(cmp);
         }
 
-        return paginate(filtered, pageable, GuestMapper::toText);
+        return stampPage(paginate(filtered, pageable, GuestMapper::toText),
+                "text", GuestTextDTO::getTextCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestTextDTO> getTextByCode(String textCode) {
         return textRepository.findByTextCodeAndRemovedAtIsNull(textCode)
                 .filter(t -> Boolean.TRUE.equals(t.getIsPublic()))
-                .map(GuestMapper::toText);
+                .map(t -> {
+                    trendingService.logView("text", textCode);
+                    return GuestMapper.toText(t);
+                });
     }
 
     // ─── Images ───────────────────────────────────────────────────────────────────
@@ -738,14 +768,18 @@ public class GuestSearchService {
             filtered.sort(cmp);
         }
 
-        return paginate(filtered, pageable, GuestMapper::toImage);
+        return stampPage(paginate(filtered, pageable, GuestMapper::toImage),
+                "image", GuestImageDTO::getImageCode, GuestSearchService::applyMark);
     }
 
     @Transactional(readOnly = true)
     public Optional<GuestImageDTO> getImageByCode(String imageCode) {
         return imageRepository.findByImageCodeAndRemovedAtIsNull(imageCode)
                 .filter(i -> Boolean.TRUE.equals(i.getIsPublic()))
-                .map(GuestMapper::toImage);
+                .map(i -> {
+                    trendingService.logView("image", imageCode);
+                    return GuestMapper.toImage(i);
+                });
     }
 
     // ─── Unified results (cross-type ranked feed) ────────────────────────────────
@@ -789,6 +823,7 @@ public class GuestSearchService {
                                                      Pageable pageable) {
 
         String norm = normalize(q);
+        if (norm != null) trendingService.logSearch(norm);
         Set<String> types = parseTypes(typesIn);
 
         // Scope expansion + attribution sets — one round-trip each.
@@ -899,6 +934,15 @@ public class GuestSearchService {
         }
 
         out.sort(unifiedComparator(sortBy, sortDirection));
+
+        // Stamp trending onto unified results before slicing the page.
+        java.util.Map<String, GuestTrendingService.TrendingMark> snap = trendingService.getSnapshot();
+        if (!snap.isEmpty()) {
+            out.forEach(dto -> {
+                GuestTrendingService.TrendingMark m = snap.get(dto.getKind() + ":" + dto.getCode());
+                if (m != null) applyMark(dto, m);
+            });
+        }
 
         long total = out.size();
         int from = (int) Math.min(pageable.getOffset(), total);
@@ -1363,6 +1407,58 @@ public class GuestSearchService {
         }
         return true;
     }
+
+    // ─── Trending stamp ───────────────────────────────────────────────────────────
+
+    /**
+     * Stamps isTrending / trendingRank / trendingScore onto every DTO in a page.
+     * Uses the cached snapshot so there is zero extra DB cost per call.
+     *
+     * @param page        the paginated list to enrich
+     * @param entityType  "audio" | "video" | "text" | "image" | "project" | "person" | "category"
+     * @param codeGetter  extracts the entity code from the DTO
+     * @param applier     writes the trending fields onto the DTO
+     */
+    private <T> Page<T> stampPage(Page<T> page,
+                                  String entityType,
+                                  java.util.function.Function<T, String> codeGetter,
+                                  java.util.function.BiConsumer<T, GuestTrendingService.TrendingMark> applier) {
+        if (page.isEmpty()) return page;
+        java.util.Map<String, GuestTrendingService.TrendingMark> snap = trendingService.getSnapshot();
+        if (snap.isEmpty()) return page;
+        page.forEach(dto -> {
+            GuestTrendingService.TrendingMark mark = snap.get(entityType + ":" + codeGetter.apply(dto));
+            if (mark != null) applier.accept(dto, mark);
+        });
+        return page;
+    }
+
+    private static void applyMark(GuestAudioDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestVideoDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestTextDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestImageDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestProjectDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestPersonDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestCategoryDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+    private static void applyMark(GuestUnifiedResultDTO dto, GuestTrendingService.TrendingMark m) {
+        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
+    }
+
+    // ─── Pagination helper ────────────────────────────────────────────────────────
 
     private static <S, T> Page<T> paginate(List<S> source, Pageable pageable,
                                            java.util.function.Function<S, T> mapper) {

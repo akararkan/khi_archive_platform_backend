@@ -54,7 +54,11 @@ public class CacheConfig {
 
                 // ── Auth caches (eliminate per-request DB queries) ────────────
                 // UserDetails: cached 1 min so permission grants take effect quickly.
-                build("users:details", 500, 1)
+                build("users:details", 500, 1),
+
+                // ── Trending (recomputed at most every 5 minutes) ─────────────
+                build("trending:results",  1, 5),
+                build("trending:snapshot", 1, 5)
         ));
         return manager;
     }

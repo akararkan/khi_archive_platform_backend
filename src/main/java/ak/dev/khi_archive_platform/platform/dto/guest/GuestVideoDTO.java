@@ -82,4 +82,9 @@ public class GuestVideoDTO implements Serializable {
 
     /** Public S3 URL of the video asset. */
     private String videoFileUrl;
+
+    // ── Trending metadata ──────────────────────────────────────────────────
+    private boolean isTrending;
+    private Integer trendingRank;
+    private Double  trendingScore;
 }
