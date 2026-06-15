@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.guest;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestAudioDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestFeedItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
@@ -140,6 +141,69 @@ public class GuestSearchAPI {
                 q, types, projectCode, categoryCode, personCode,
                 language, dialect, tags, keywords,
                 parseStart(dateFrom), parseEnd(dateTo), sortBy, sortDirection, pageable));
+    }
+
+    // ─── Unified feed (fastest cross-entity endpoint) ────────────────────────────
+
+    /**
+     * Single paginated feed across every media kind — the recommended
+     * browse-and-search endpoint for the public site.
+     *
+     * <p>One PostgreSQL round-trip via a UNION ALL native query returns the
+     * page; a second returns the total. All filtering, scoring, and
+     * pagination happen on the DB so the JVM only handles ≤ {@code size}
+     * rows per call regardless of corpus size.
+     *
+     * <p>Use this for: the home page browse grid, the search-results page,
+     * the "All items" tab, and any "show me everything matching X" UI.
+     * Per-type endpoints ({@code /audios}, {@code /videos}, …) stay around
+     * for media-specific filters (singer, ISBN, frame rate, …).
+     *
+     * <p>Filters supported (all optional):
+     * <ul>
+     *   <li>{@code q} — free text matched against titles, codes,
+     *       description, project name, person name, tags, keywords,
+     *       subjects, genres on every kind.</li>
+     *   <li>{@code types} — which kinds to include
+     *       ({@code audio | video | image | text}; repeat or omit for all).</li>
+     *   <li>Common scalars: {@code projectCode}, {@code categoryCode},
+     *       {@code personCode}, {@code language}, {@code dialect},
+     *       {@code region}.</li>
+     *   <li>Multi-value collection filters: {@code subject},
+     *       {@code genre}, {@code tag}, {@code keyword} (repeatable).</li>
+     *   <li>{@code dateFrom} / {@code dateTo} — inclusive ISO date range
+     *       on {@code dateCreated}.</li>
+     *   <li>{@code sortBy}: {@code relevance} (default when q present)
+     *       / {@code date} (default otherwise) / {@code datePublished} /
+     *       {@code title}. {@code sortDirection}: {@code asc | desc}.</li>
+     * </ul>
+     */
+    @GetMapping("/feed")
+    public ResponseEntity<Page<GuestFeedItemDTO>> feed(
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "types", required = false) List<String> types,
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam(value = "categoryCode", required = false) String categoryCode,
+            @RequestParam(value = "personCode", required = false) String personCode,
+            @RequestParam(value = "language", required = false) String language,
+            @RequestParam(value = "dialect", required = false) String dialect,
+            @RequestParam(value = "region", required = false) String region,
+            @RequestParam(value = "subject", required = false) List<String> subjects,
+            @RequestParam(value = "genre", required = false) List<String> genres,
+            @RequestParam(value = "tag", required = false) List<String> tags,
+            @RequestParam(value = "keyword", required = false) List<String> keywords,
+            @RequestParam(value = "dateFrom", required = false) String dateFrom,
+            @RequestParam(value = "dateTo", required = false) String dateTo,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "sortDirection", required = false) String sortDirection,
+            @PageableDefault(size = 50) Pageable pageable
+    ) {
+        return ResponseEntity.ok(guestSearchService.feedAll(
+                q, types, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                subjects, genres, tags, keywords,
+                parseStart(dateFrom), parseEnd(dateTo),
+                sortBy, sortDirection, pageable));
     }
 
     // ─── Projects (collections) ───────────────────────────────────────────────────

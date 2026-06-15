@@ -2,7 +2,9 @@ package ak.dev.khi_archive_platform.platform.service.guest;
 
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestAudioDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategorySummaryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestFeedItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
@@ -27,6 +29,9 @@ import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.text.TextRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -87,6 +92,9 @@ public class GuestSearchService {
     private final TextRepository textRepository;
     private final GuestTrendingService trendingService;
     private final ImageRepository imageRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     static final int DEFAULT_LIMIT = 50;
     static final int MAX_LIMIT = 500;
@@ -975,6 +983,229 @@ public class GuestSearchService {
         int from = (int) Math.min(pageable.getOffset(), total);
         int to = (int) Math.min(from + pageable.getPageSize(), total);
         return new PageImpl<>(out.subList(from, to), pageable, total);
+    }
+
+    // ─── Unified FAST feed (DB-side UNION ALL with PG-side pagination) ───────────
+
+    /**
+     * High-throughput cross-entity feed. One PostgreSQL round-trip returns
+     * the page rows; a second returns the total. Filters, scoring and
+     * pagination all live in the SQL — JVM only hydrates the visible page
+     * (≤ {@link #MAX_LIMIT} rows).
+     *
+     * <h3>Why this is fast</h3>
+     * <ul>
+     *   <li><strong>UNION ALL</strong> across the requested media tables —
+     *       the planner runs each branch with its own index plan, no global
+     *       row scan.</li>
+     *   <li><strong>Predicate-pushed WHERE</strong> — only the filters the
+     *       caller actually set become SQL conditions, so PG sees a tight
+     *       predicate set and reaches for the right index (project_id,
+     *       removed_at, language…).</li>
+     *   <li><strong>EXISTS subqueries</strong> for tag/keyword/genre/subject
+     *       — short-circuits on first row, no aggregation pass.</li>
+     *   <li><strong>LIMIT/OFFSET</strong> on the UNIONed stream — the JVM
+     *       sees only {@code size} rows, never the whole result set.</li>
+     *   <li><strong>Batch category fetch</strong> for the page's distinct
+     *       project IDs — one extra query, not N+1.</li>
+     * </ul>
+     *
+     * @param q              free-text — matches titles, codes, description,
+     *                       project name, person name, tags, keywords, subjects, genres
+     * @param typesIn        which kinds to include ({@code audio|video|image|text});
+     *                       null/empty = all four
+     * @param projectCode    exact project code
+     * @param categoryCode   exact category code
+     * @param personCode     exact person code (via the project's owner)
+     * @param language       exact match on entity.language
+     * @param dialect        exact match on entity.dialect
+     * @param region         exact match on entity.region
+     * @param subjects       any-match against entity_subjects collection
+     * @param genres         any-match against entity_genres collection
+     * @param tags           any-match against entity_tags collection
+     * @param keywords       any-match against entity_keywords collection
+     * @param dateFrom       inclusive lower bound on date_created
+     * @param dateTo         inclusive upper bound on date_created
+     * @param sortBy         {@code relevance} (default when q present) |
+     *                       {@code date} (default otherwise) | {@code datePublished} | {@code title}
+     * @param sortDirection  {@code asc} | {@code desc}
+     */
+    @Transactional(readOnly = true)
+    public Page<GuestFeedItemDTO> feedAll(String q,
+                                          List<String> typesIn,
+                                          String projectCode,
+                                          String categoryCode,
+                                          String personCode,
+                                          String language,
+                                          String dialect,
+                                          String region,
+                                          List<String> subjects,
+                                          List<String> genres,
+                                          List<String> tags,
+                                          List<String> keywords,
+                                          Instant dateFrom,
+                                          Instant dateTo,
+                                          String sortBy,
+                                          String sortDirection,
+                                          Pageable pageable) {
+        String norm = normalize(q);
+        if (norm != null) trendingService.logSearch(norm);
+
+        GuestFeedSqlBuilder.Filters filters = new GuestFeedSqlBuilder.Filters(
+                norm, parseTypes(typesIn),
+                projectCode, categoryCode, personCode,
+                language, dialect, region,
+                subjects, genres, tags, keywords,
+                dateFrom, dateTo, sortBy, sortDirection);
+
+        int size = Math.min(Math.max(pageable.getPageSize(), 1), MAX_LIMIT);
+        int offset = (int) Math.min(pageable.getOffset(), Integer.MAX_VALUE);
+
+        GuestFeedSqlBuilder.Built pageBuilt = GuestFeedSqlBuilder.buildPage(filters, size, offset);
+        GuestFeedSqlBuilder.Built countBuilt = GuestFeedSqlBuilder.buildCount(filters);
+
+        Query pageQ = entityManager.createNativeQuery(pageBuilt.sql());
+        pageBuilt.params().forEach(pageQ::setParameter);
+        Query countQ = entityManager.createNativeQuery(countBuilt.sql());
+        countBuilt.params().forEach(countQ::setParameter);
+
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = pageQ.getResultList();
+        long total = ((Number) countQ.getSingleResult()).longValue();
+
+        // Batch-fetch the page's distinct project IDs in two cheap round-trips:
+        // one for projects+persons (header info) and one for categories.
+        Set<Long> projectIds = new LinkedHashSet<>(rows.size());
+        for (Object[] r : rows) {
+            Object pid = r[4];
+            if (pid != null) projectIds.add(((Number) pid).longValue());
+        }
+        Map<Long, ProjectInfo> projectInfo = fetchProjectInfo(projectIds);
+        Map<Long, List<GuestCategorySummaryDTO>> catsByProject = fetchCategoriesForProjects(projectIds);
+
+        // Hydrate slim cards.
+        List<GuestFeedItemDTO> items = new ArrayList<>(rows.size());
+        Map<String, GuestTrendingService.TrendingMark> snap = trendingService.getSnapshot();
+        for (Object[] r : rows) {
+            GuestFeedItemDTO dto = rowToFeedItem(r, projectInfo, catsByProject);
+            GuestTrendingService.TrendingMark m = snap.get(dto.getKind() + ":" + dto.getCode());
+            if (m != null) {
+                dto.setTrending(true);
+                dto.setTrendingRank(m.rank());
+                dto.setTrendingScore(m.score());
+            }
+            items.add(dto);
+        }
+        return new PageImpl<>(items, pageable, total);
+    }
+
+    /**
+     * Hydrates one feed row (positional native-query result) into a card DTO.
+     * Column order must match {@link GuestFeedSqlBuilder} branch SELECT.
+     */
+    private static GuestFeedItemDTO rowToFeedItem(Object[] r,
+                                                  Map<Long, ProjectInfo> projectInfo,
+                                                  Map<Long, List<GuestCategorySummaryDTO>> catsByProject) {
+        // Column layout: kind, id, code, title, project_id,
+        //                language, dialect, region,
+        //                date_created, date_published, file_url, score
+        Long projectId = (r[4] == null) ? null : ((Number) r[4]).longValue();
+        ProjectInfo pi = (projectId == null) ? null : projectInfo.get(projectId);
+        return GuestFeedItemDTO.builder()
+                .kind((String) r[0])
+                .id(r[1] == null ? null : ((Number) r[1]).longValue())
+                .code((String) r[2])
+                .title((String) r[3])
+                .projectCode(pi == null ? null : pi.code)
+                .projectName(pi == null ? null : pi.name)
+                .personCode(pi == null ? null : pi.personCode)
+                .personName(pi == null ? null : pi.personName)
+                .personMediaPortrait(pi == null ? null : pi.personPortrait)
+                .categories(projectId == null ? List.of()
+                        : catsByProject.getOrDefault(projectId, List.of()))
+                .language((String) r[5])
+                .dialect((String) r[6])
+                .region((String) r[7])
+                .dateCreated(asInstant(r[8]))
+                .datePublished(asInstant(r[9]))
+                .fileUrl((String) r[10])
+                .score(r[11] == null ? 0.0 : ((Number) r[11]).doubleValue())
+                .build();
+    }
+
+    private record ProjectInfo(String code, String name, String personCode,
+                               String personName, String personPortrait) {}
+
+    /** One round-trip fetch of project + owning-person columns for the page's projects. */
+    @SuppressWarnings("unchecked")
+    private Map<Long, ProjectInfo> fetchProjectInfo(Set<Long> projectIds) {
+        if (projectIds.isEmpty()) return Map.of();
+        Query q = entityManager.createNativeQuery(
+                "SELECT p.id, p.project_code, p.project_name, "
+              + "       per.person_code, per.full_name, per.nickname, per.romanized_name, per.media_portrait "
+              + "  FROM projects p "
+              + "  LEFT JOIN persons per ON per.id = p.person_id "
+              + " WHERE p.id IN (:ids)");
+        q.setParameter("ids", projectIds);
+        List<Object[]> rows = q.getResultList();
+        Map<Long, ProjectInfo> out = new HashMap<>(rows.size() * 2);
+        for (Object[] r : rows) {
+            Long pid = ((Number) r[0]).longValue();
+            String fullName = (String) r[4];
+            String nickname = (String) r[5];
+            String roman = (String) r[6];
+            String displayName = firstNonBlankStr(fullName, nickname, roman);
+            out.put(pid, new ProjectInfo(
+                    (String) r[1],   // project_code
+                    (String) r[2],   // project_name
+                    (String) r[3],   // person_code
+                    displayName,
+                    (String) r[7])); // media_portrait
+        }
+        return out;
+    }
+
+    private static String firstNonBlankStr(String... in) {
+        if (in == null) return null;
+        for (String s : in) if (s != null && !s.isBlank()) return s;
+        return null;
+    }
+
+    /**
+     * Returns the categories of every requested project in one round-trip.
+     * Uses a native join so we don't touch lazy collections per project.
+     */
+    @SuppressWarnings("unchecked")
+    private Map<Long, List<GuestCategorySummaryDTO>> fetchCategoriesForProjects(Set<Long> projectIds) {
+        if (projectIds.isEmpty()) return Map.of();
+        Query q = entityManager.createNativeQuery(
+                "SELECT pc.project_id, c.id, c.category_code, c.name "
+              + "  FROM project_categories pc "
+              + "  JOIN categories c ON c.id = pc.category_id "
+              + " WHERE pc.project_id IN (:ids) "
+              + "   AND c.removed_at IS NULL "
+              + " ORDER BY pc.project_id, c.name");
+        q.setParameter("ids", projectIds);
+        List<Object[]> rows = q.getResultList();
+        Map<Long, List<GuestCategorySummaryDTO>> out = new HashMap<>();
+        for (Object[] r : rows) {
+            Long pid = ((Number) r[0]).longValue();
+            out.computeIfAbsent(pid, k -> new ArrayList<>()).add(
+                    GuestCategorySummaryDTO.builder()
+                            .id(r[1] == null ? null : ((Number) r[1]).longValue())
+                            .categoryCode((String) r[2])
+                            .name((String) r[3])
+                            .build());
+        }
+        return out;
+    }
+
+    private static Instant asInstant(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Instant i) return i;
+        if (raw instanceof java.sql.Timestamp ts) return ts.toInstant();
+        if (raw instanceof java.time.OffsetDateTime odt) return odt.toInstant();
+        return null;
     }
 
     private static Set<String> parseTypes(List<String> in) {
