@@ -46,12 +46,14 @@ public class GuestAudioDTO implements Serializable {
     private String form;
     private String typeOfBasta;
     private String typeOfMaqam;
+    private List<String> subject;
     private List<String> genre;
 
     private String abstractText;
     private String description;
 
     private String speaker;
+    private String singer;
     private String producer;
     private String composer;
     private String poet;

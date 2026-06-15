@@ -358,12 +358,15 @@ public class GuestSearchService {
                                             String composer,
                                             String producer,
                                             String speaker,
+                                            String singer,
                                             String poet,
+                                            List<String> contributors,
                                             String recordingVenue,
                                             String city,
                                             String region,
                                             String audience,
                                             String lyrics,
+                                            List<String> subjects,
                                             List<String> genres,
                                             List<String> tags,
                                             List<String> keywords,
@@ -397,12 +400,15 @@ public class GuestSearchService {
         String wComposer = lower(composer);
         String wProducer = lower(producer);
         String wSpeaker = lower(speaker);
+        String wSinger = lower(singer);
         String wPoet = lower(poet);
         String wRecordingVenue = lower(recordingVenue);
         String wCity = lower(city);
         String wRegion = lower(region);
         String wAudience = lower(audience);
         String wLyrics = lower(lyrics);
+        var wContributors = lowerSet(contributors);
+        var wSubjects = lowerSet(subjects);
         var wGenres = lowerSet(genres);
         var wTags = lowerSet(tags);
         var wKeywords = lowerSet(keywords);
@@ -421,12 +427,15 @@ public class GuestSearchService {
             if (wComposer != null && !containsLower(a.getComposer(), wComposer)) continue;
             if (wProducer != null && !containsLower(a.getProducer(), wProducer)) continue;
             if (wSpeaker != null && !containsLower(a.getSpeaker(), wSpeaker)) continue;
+            if (wSinger != null && !containsLower(a.getSinger(), wSinger)) continue;
             if (wPoet != null && !containsLower(a.getPoet(), wPoet)) continue;
             if (wRecordingVenue != null && !containsLower(a.getRecording_venue(), wRecordingVenue)) continue;
             if (wCity != null && !equalsLower(a.getCity(), wCity)) continue;
             if (wRegion != null && !equalsLower(a.getRegion(), wRegion)) continue;
             if (wAudience != null && !equalsLower(a.getAudience(), wAudience)) continue;
             if (wLyrics != null && !containsLower(a.getLyrics(), wLyrics)) continue;
+            if (!wContributors.isEmpty() && !anyMatch(a.getContributors(), wContributors)) continue;
+            if (!wSubjects.isEmpty() && !anyMatch(a.getSubject(), wSubjects)) continue;
             if (!wGenres.isEmpty() && !anyMatch(a.getGenre(), wGenres)) continue;
             if (!wTags.isEmpty() && !anyMatch(a.getTags(), wTags)) continue;
             if (!wKeywords.isEmpty() && !anyMatch(a.getKeywords(), wKeywords)) continue;
@@ -464,6 +473,7 @@ public class GuestSearchService {
                                             String personCode,
                                             String language,
                                             String dialect,
+                                            String region,
                                             String event,
                                             String location,
                                             String creatorArtistDirector,
@@ -503,6 +513,7 @@ public class GuestSearchService {
         String wPerson = lower(personCode);
         String wLang = lower(language);
         String wDialect = lower(dialect);
+        String wRegion = lower(region);
         String wEvent = lower(event);
         String wLocation = lower(location);
         String wDirector = lower(creatorArtistDirector);
@@ -527,6 +538,7 @@ public class GuestSearchService {
             if (!projectMatches(v.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(v.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(v.getDialect(), wDialect)) continue;
+            if (wRegion != null && !equalsLower(v.getRegion(), wRegion)) continue;
             if (wEvent != null && !containsLower(v.getEvent(), wEvent)) continue;
             if (wLocation != null && !containsLower(v.getLocation(), wLocation)) continue;
             if (wDirector != null && !containsLower(v.getCreatorArtistDirector(), wDirector)) continue;
@@ -578,7 +590,9 @@ public class GuestSearchService {
                                           String personCode,
                                           String language,
                                           String dialect,
+                                          String region,
                                           String documentType,
+                                          String isbn,
                                           String author,
                                           String contributors,
                                           String script,
@@ -617,7 +631,9 @@ public class GuestSearchService {
         String wPerson = lower(personCode);
         String wLang = lower(language);
         String wDialect = lower(dialect);
+        String wRegion = lower(region);
         String wDocType = lower(documentType);
+        String wIsbn = lower(isbn);
         String wAuthor = lower(author);
         String wContributors = lower(contributors);
         String wScript = lower(script);
@@ -639,7 +655,9 @@ public class GuestSearchService {
             if (!projectMatches(t.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(t.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(t.getDialect(), wDialect)) continue;
+            if (wRegion != null && !equalsLower(t.getRegion(), wRegion)) continue;
             if (wDocType != null && !equalsLower(t.getDocumentType(), wDocType)) continue;
+            if (wIsbn != null && !containsLower(t.getIsbn(), wIsbn)) continue;
             if (wAuthor != null && !containsLower(t.getAuthor(), wAuthor)) continue;
             if (wContributors != null && !containsLower(t.getContributors(), wContributors)) continue;
             if (wScript != null && !equalsLower(t.getScript(), wScript)) continue;
@@ -687,6 +705,9 @@ public class GuestSearchService {
                                             String projectCode,
                                             String categoryCode,
                                             String personCode,
+                                            String language,
+                                            String dialect,
+                                            String region,
                                             String event,
                                             String location,
                                             String creatorArtistPhotographer,
@@ -722,6 +743,9 @@ public class GuestSearchService {
         String wProject = lower(projectCode);
         String wCategory = lower(categoryCode);
         String wPerson = lower(personCode);
+        String wLang = lower(language);
+        String wDialect = lower(dialect);
+        String wRegion = lower(region);
         String wEvent = lower(event);
         String wLocation = lower(location);
         String wPhotographer = lower(creatorArtistPhotographer);
@@ -742,6 +766,9 @@ public class GuestSearchService {
         for (Image i : source) {
             if (!Boolean.TRUE.equals(i.getIsPublic())) continue;
             if (!projectMatches(i.getProject(), wProject, wCategory, wPerson)) continue;
+            if (wLang != null && !equalsLower(i.getLanguage(), wLang)) continue;
+            if (wDialect != null && !equalsLower(i.getDialect(), wDialect)) continue;
+            if (wRegion != null && !equalsLower(i.getRegion(), wRegion)) continue;
             if (wEvent != null && !containsLower(i.getEvent(), wEvent)) continue;
             if (wLocation != null && !containsLower(i.getLocation(), wLocation)) continue;
             if (wPhotographer != null && !containsLower(i.getCreatorArtistPhotographer(), wPhotographer)) continue;

@@ -149,6 +149,17 @@ public class Image {
     @Column(name = "lens")
     private String lens;
 
+    // ─── Language ────────────────────────────────────────────────────────────────
+
+    @Column(name = "language")
+    private String language;
+
+    @Column(name = "dialect")
+    private String dialect;
+
+    @Column(name = "region")
+    private String region;
+
     // ─── People & Production ─────────────────────────────────────────────────────
 
     @Column(name = "creator_artist_photographer", columnDefinition = "TEXT")

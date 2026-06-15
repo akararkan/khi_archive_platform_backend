@@ -81,6 +81,12 @@ public class Audio {
     @Column(name = "genre", columnDefinition = "TEXT")
     private List<String> genre = new ArrayList<>();
 
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "audio_subjects", joinColumns = @JoinColumn(name = "audio_id"))
+    @Column(name = "subject", columnDefinition = "TEXT")
+    private List<String> subject = new ArrayList<>();
+
     @Column(name = "abstract_text", columnDefinition = "TEXT")
     private String abstractText;
 
@@ -89,6 +95,9 @@ public class Audio {
 
     @Column(name = "speaker", columnDefinition = "TEXT")
     private String speaker;
+
+    @Column(name = "singer", columnDefinition = "TEXT")
+    private String singer;
 
     @Column(name = "producer", columnDefinition = "TEXT")
     private String producer;

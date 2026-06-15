@@ -54,6 +54,7 @@ public class GuestVideoDTO implements Serializable {
 
     private String language;
     private String dialect;
+    private String region;
     private String subtitle;
 
     private String creatorArtistDirector;

@@ -127,6 +127,9 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                      OR LOWER(COALESCE(a.speaker, ''))               LIKE LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.speaker, ''))               LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.speaker, '')) % LOWER(:qRaw)
+                     OR LOWER(COALESCE(a.singer, ''))                LIKE LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(a.singer, ''))                LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(a.singer, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(a.producer, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.producer, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.producer, '')) % LOWER(:qRaw)
@@ -173,6 +176,8 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                 UNION
                 SELECT g.audio_id  FROM audio_genres       g  WHERE LOWER(g.genre)       LIKE LOWER(:q) || '%' ESCAPE '\\' OR LOWER(g.genre)       LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' OR LOWER(g.genre)       % LOWER(:qRaw)
                 UNION
+                SELECT s.audio_id  FROM audio_subjects     s  WHERE LOWER(s.subject)     LIKE LOWER(:q) || '%' ESCAPE '\\' OR LOWER(s.subject)     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' OR LOWER(s.subject)     % LOWER(:qRaw)
+                UNION
                 SELECT c.audio_id  FROM audio_contributors c  WHERE LOWER(c.contributor) LIKE LOWER(:q) || '%' ESCAPE '\\' OR LOWER(c.contributor) LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' OR LOWER(c.contributor) % LOWER(:qRaw)
                 UNION
                 SELECT t.audio_id  FROM audio_tags         t  WHERE LOWER(t.tag)         LIKE LOWER(:q) || '%' ESCAPE '\\' OR LOWER(t.tag)         LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' OR LOWER(t.tag)         % LOWER(:qRaw)
@@ -191,6 +196,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    WHEN LOWER(COALESCE(a.romanized_title, ''))       LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.audio_code, ''))            LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.speaker, ''))               LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
+                   WHEN LOWER(COALESCE(a.singer, ''))                LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.composer, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.poet, ''))                  LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.producer, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
@@ -205,6 +211,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    WHEN LOWER(COALESCE(a.central_kurdish_title, '')) LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.romanized_title, ''))       LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.speaker, ''))               LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
+                   WHEN LOWER(COALESCE(a.singer, ''))                LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.composer, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.poet, ''))                  LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.producer, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\' THEN 1
@@ -217,6 +224,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    similarity(LOWER(COALESCE(a.central_kurdish_title, '')),  LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.romanized_title, '')),        LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.speaker, '')),                LOWER(:qRaw)),
+                   similarity(LOWER(COALESCE(a.singer, '')),                 LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.composer, '')),               LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.poet, '')),                   LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.producer, '')),               LOWER(:qRaw)),
@@ -228,6 +236,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    COALESCE((SELECT MAX(similarity(LOWER(t.tag),         LOWER(:qRaw))) FROM audio_tags         t WHERE t.audio_id = a.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(k.keyword),     LOWER(:qRaw))) FROM audio_keywords     k WHERE k.audio_id = a.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(g.genre),       LOWER(:qRaw))) FROM audio_genres       g WHERE g.audio_id = a.id), 0),
+                   COALESCE((SELECT MAX(similarity(LOWER(s.subject),     LOWER(:qRaw))) FROM audio_subjects     s WHERE s.audio_id = a.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(c.contributor), LOWER(:qRaw))) FROM audio_contributors c WHERE c.audio_id = a.id), 0)
                ) DESC,
                a.origin_title ASC NULLS LAST,

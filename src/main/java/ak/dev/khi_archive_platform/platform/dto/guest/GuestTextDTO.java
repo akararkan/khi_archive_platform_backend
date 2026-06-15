@@ -57,6 +57,7 @@ public class GuestTextDTO implements Serializable {
 
     private String language;
     private String dialect;
+    private String region;
 
     private String author;
     private String contributors;

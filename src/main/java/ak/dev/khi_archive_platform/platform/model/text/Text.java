@@ -146,6 +146,9 @@ public class Text {
     @Column(name = "dialect")
     private String dialect;
 
+    @Column(name = "region")
+    private String region;
+
     // ─── People & Production ─────────────────────────────────────────────────────
 
     @Column(name = "author", columnDefinition = "TEXT")

@@ -128,6 +128,9 @@ public interface TextRepository extends JpaRepository<Text, Long> {
                      OR LOWER(COALESCE(t.text_version, ''))               LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(t.language, ''))                   LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(t.dialect, ''))                    LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(t.region, ''))                     LIKE LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(t.region, ''))                     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(t.region, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(t.author, ''))                     LIKE LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(t.author, ''))                     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(t.author, '')) % LOWER(:qRaw)
@@ -191,6 +194,7 @@ public interface TextRepository extends JpaRepository<Text, Long> {
                    similarity(LOWER(COALESCE(t.romanized_title, '')),          LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(t.author, '')),                   LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(t.description, '')),              LOWER(:qRaw)),
+                   similarity(LOWER(COALESCE(t.region, '')),                   LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(t.transcription, '')),            LOWER(:qRaw)),
                    COALESCE((SELECT MAX(similarity(LOWER(tg.tag),   LOWER(:qRaw))) FROM text_tags     tg WHERE tg.text_id = t.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(k.keyword), LOWER(:qRaw))) FROM text_keywords k WHERE k.text_id = t.id), 0),

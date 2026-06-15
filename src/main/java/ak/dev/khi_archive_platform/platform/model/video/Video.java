@@ -165,6 +165,9 @@ public class Video {
     @Column(name = "dialect")
     private String dialect;
 
+    @Column(name = "region")
+    private String region;
+
     @Column(name = "subtitle")
     private String subtitle;
 

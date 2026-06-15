@@ -141,6 +141,11 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
                      OR LOWER(COALESCE(i.contributor, ''))                 LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(i.contributor, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(i.audience, ''))                    LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(i.language, ''))                    LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(i.dialect, ''))                     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(i.region, ''))                      LIKE LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(i.region, ''))                      LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(i.region, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(i.accrual_method, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(i.provenance, ''))                  LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(i.photostory, ''))                  LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
@@ -209,6 +214,7 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
                    similarity(LOWER(COALESCE(i.description, '')),                 LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(i.event, '')),                       LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(i.location, '')),                    LOWER(:qRaw)),
+                   similarity(LOWER(COALESCE(i.region, '')),                      LOWER(:qRaw)),
                    COALESCE((SELECT MAX(similarity(LOWER(t.tag),     LOWER(:qRaw))) FROM image_tags     t WHERE t.image_id = i.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(k.keyword), LOWER(:qRaw))) FROM image_keywords k WHERE k.image_id = i.id), 0),
                    COALESCE((SELECT MAX(similarity(LOWER(s.subject), LOWER(:qRaw))) FROM image_subjects s WHERE s.image_id = i.id), 0),

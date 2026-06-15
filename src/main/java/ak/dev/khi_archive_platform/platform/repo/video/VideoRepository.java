@@ -130,6 +130,9 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
                      OR LOWER(COALESCE(v.audio_channels, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(v.language, ''))                    LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(v.dialect, ''))                     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(v.region, ''))                      LIKE LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(v.region, ''))                      LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(v.region, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(v.subtitle, ''))                    LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(v.creator_artist_director, ''))     LIKE LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(v.creator_artist_director, ''))     LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
@@ -206,6 +209,7 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
                    similarity(LOWER(COALESCE(v.producer, '')),                  LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(v.event, '')),                     LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(v.location, '')),                  LOWER(:qRaw)),
+                   similarity(LOWER(COALESCE(v.region, '')),                    LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(v.person_shown_in_video, '')),     LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(v.description, '')),               LOWER(:qRaw)),
                    COALESCE((SELECT MAX(similarity(LOWER(t.tag),     LOWER(:qRaw))) FROM video_tags     t WHERE t.video_id = v.id), 0),

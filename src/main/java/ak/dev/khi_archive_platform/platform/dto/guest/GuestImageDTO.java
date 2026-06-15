@@ -53,6 +53,10 @@ public class GuestImageDTO implements Serializable {
     private String personShownInImage;
     private List<String> colorOfImage;
 
+    private String language;
+    private String dialect;
+    private String region;
+
     private String manufacturer;
     private String model;
     private String lens;
