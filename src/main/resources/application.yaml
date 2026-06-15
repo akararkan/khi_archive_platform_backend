@@ -101,11 +101,14 @@ app:
 # AWS S3
 # ===============================
 aws:
+  credentials:
+    access-key: ${AWS_ACCESS_KEY_ID}
+    secret-key: ${AWS_SECRET_ACCESS_KEY}
   s3:
-    region: us-east-1
-    bucket: khi-archive-platform
-    base-folder: khi-archive-platform-folders
-    person-folder: persons
+    region: ${AWS_REGION:us-east-1}
+    bucket: ${AWS_S3_BUCKET:khi-archive-platform}
+    base-folder: ${AWS_S3_BASE_FOLDER:khi-archive-platform-folders}
+    person-folder: ${AWS_S3_PERSON_FOLDER:persons}
 # ===============================
 # SERVER / TOMCAT LIMITS
 # ===============================
