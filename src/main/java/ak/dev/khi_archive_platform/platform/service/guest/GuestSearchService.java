@@ -1144,7 +1144,7 @@ public class GuestSearchService {
                 "SELECT p.id, p.project_code, p.project_name, "
               + "       per.person_code, per.full_name, per.nickname, per.romanized_name, per.media_portrait "
               + "  FROM projects p "
-              + "  LEFT JOIN persons per ON per.id = p.person_id "
+              + "  LEFT JOIN person per ON per.id = p.person_id "
               + " WHERE p.id IN (:ids)");
         q.setParameter("ids", projectIds);
         List<Object[]> rows = q.getResultList();

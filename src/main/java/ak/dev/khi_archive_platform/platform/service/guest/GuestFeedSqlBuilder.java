@@ -158,11 +158,17 @@ final class GuestFeedSqlBuilder {
         }
         if (branches.isEmpty()) {
             // No requested kinds — fall back to empty set so the page is empty.
-            return "SELECT NULL::text AS kind, NULL::bigint AS id, NULL::text AS code, "
-                    + "NULL::text AS title, NULL::bigint AS project_id, "
-                    + "NULL::text AS language, NULL::text AS dialect, NULL::text AS region, "
-                    + "NULL::timestamp AS date_created, NULL::timestamp AS date_published, "
-                    + "NULL::text AS file_url, 0::double precision AS score WHERE FALSE";
+            // CAST(…) is used rather than ::type to avoid Hibernate's named-param
+            // parser misreading PG's ":type" as a placeholder.
+            return "SELECT CAST(NULL AS text) AS kind, CAST(NULL AS bigint) AS id, "
+                    + "CAST(NULL AS text) AS code, CAST(NULL AS text) AS title, "
+                    + "CAST(NULL AS bigint) AS project_id, "
+                    + "CAST(NULL AS text) AS language, CAST(NULL AS text) AS dialect, "
+                    + "CAST(NULL AS text) AS region, "
+                    + "CAST(NULL AS timestamp) AS date_created, "
+                    + "CAST(NULL AS timestamp) AS date_published, "
+                    + "CAST(NULL AS text) AS file_url, "
+                    + "CAST(0 AS double precision) AS score WHERE FALSE";
         }
         return String.join(" UNION ALL ", branches);
     }
@@ -202,18 +208,20 @@ final class GuestFeedSqlBuilder {
             sb.append("(CASE WHEN LOWER(COALESCE(per.full_name, '')) LIKE :qLike "
                     + "OR LOWER(COALESCE(per.nickname, '')) LIKE :qLike "
                     + "OR LOWER(COALESCE(per.romanized_name, '')) LIKE :qLike THEN 2 ELSE 0 END)");
-            sb.append(")::double precision AS score ");
+            sb.append(") AS score");
         } else {
-            sb.append("0::double precision AS score ");
+            sb.append("CAST(0 AS double precision) AS score ");
         }
 
         sb.append("FROM ").append(k.table).append(" e ")
                 .append("LEFT JOIN projects p ON p.id = e.project_id ")
-                .append("LEFT JOIN persons per ON per.id = p.person_id ");
+                .append("LEFT JOIN person per ON per.id = p.person_id ");
 
         // WHERE — only emit predicates for filters that are actually set.
-        sb.append("WHERE e.removed_at IS NULL AND e.is_public = TRUE ");
-        sb.append("AND p.removed_at IS NULL AND p.is_visible_to_public = TRUE ");
+        // COALESCE shields against legacy rows where the boolean is still NULL
+        // (older inserts before the columns were marked NOT NULL DEFAULT TRUE).
+        sb.append("WHERE e.removed_at IS NULL AND COALESCE(e.is_public, TRUE) = TRUE ");
+        sb.append("AND p.removed_at IS NULL AND COALESCE(p.is_visible_to_public, TRUE) = TRUE ");
 
         if (notBlank(f.projectCode)) {
             sb.append("AND LOWER(p.project_code) = :projectCode ");
