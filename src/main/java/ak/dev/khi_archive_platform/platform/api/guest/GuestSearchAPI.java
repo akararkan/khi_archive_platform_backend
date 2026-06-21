@@ -155,9 +155,12 @@ public class GuestSearchAPI {
      * rows per call regardless of corpus size.
      *
      * <p>Use this for: the home page browse grid, the search-results page,
-     * the "All items" tab, and any "show me everything matching X" UI.
-     * Per-type endpoints ({@code /audios}, {@code /videos}, …) stay around
-     * for media-specific filters (singer, ISBN, frame rate, …).
+     * the "All items" tab, and any "show me everything matching X" UI. This is
+     * the ONE call that replaces fanning out to every {@code getAll()} — it
+     * returns audio, video, image, text, projects AND persons interleaved in a
+     * single ranked, paginated stream from one DB round-trip. Per-type
+     * endpoints ({@code /audios}, {@code /videos}, …) stay around for
+     * media-specific filters (singer, ISBN, frame rate, …).
      *
      * <p>Filters supported (all optional):
      * <ul>
@@ -165,7 +168,11 @@ public class GuestSearchAPI {
      *       description, project name, person name, tags, keywords,
      *       subjects, genres on every kind.</li>
      *   <li>{@code types} — which kinds to include
-     *       ({@code audio | video | image | text}; repeat or omit for all).</li>
+     *       ({@code audio | video | image | text | project | person};
+     *       repeat or omit for all six). Note: project/person rows are
+     *       automatically dropped when a media-only filter (language, dialect,
+     *       region, subject, genre — also project/category/tag/keyword for
+     *       persons) is set, since they can't satisfy it.</li>
      *   <li>Common scalars: {@code projectCode}, {@code categoryCode},
      *       {@code personCode}, {@code language}, {@code dialect},
      *       {@code region}.</li>

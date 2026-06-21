@@ -12,8 +12,10 @@ import java.util.Set;
  * Builds the dynamic native SQL behind {@code GET /api/guest/feed}.
  *
  * <h3>Algorithm</h3>
- * One <strong>UNION ALL</strong> across the requested media kinds, all
- * paginated on the PostgreSQL side. Each branch:
+ * One <strong>UNION ALL</strong> across the requested kinds — the four media
+ * kinds (audio/video/image/text) plus {@code project} and {@code person} —
+ * all paginated on the PostgreSQL side. Every branch SELECTs the identical
+ * 12-column card shape so they stack into one stream. Each branch:
  * <ul>
  *   <li>Selects the slim card shape (id, code, title, project_id,
  *       language/dialect/region, date_created, date_published, file URL)</li>
@@ -89,10 +91,12 @@ final class GuestFeedSqlBuilder {
     private static final Map<String, KindSpec> SPECS = Map.of(
             "audio", AUDIO, "video", VIDEO, "image", IMAGE, "text", TEXT);
 
-    static final String KIND_AUDIO = "audio";
-    static final String KIND_VIDEO = "video";
-    static final String KIND_IMAGE = "image";
-    static final String KIND_TEXT  = "text";
+    static final String KIND_AUDIO   = "audio";
+    static final String KIND_VIDEO   = "video";
+    static final String KIND_IMAGE   = "image";
+    static final String KIND_TEXT    = "text";
+    static final String KIND_PROJECT = "project";
+    static final String KIND_PERSON  = "person";
 
     /** Inputs to the builder. All nullable — empty = no filter on that field. */
     record Filters(
@@ -150,11 +154,23 @@ final class GuestFeedSqlBuilder {
         }
         bindCommonFilters(f, params);
 
-        List<String> branches = new ArrayList<>(4);
+        List<String> branches = new ArrayList<>(6);
+        // ── Media kinds (audio/video/image/text) ──
         for (String kind : List.of(KIND_AUDIO, KIND_VIDEO, KIND_IMAGE, KIND_TEXT)) {
-            if (f.types == null || f.types.isEmpty() || f.types.contains(kind)) {
+            if (wants(f, kind)) {
                 branches.add(branchSql(SPECS.get(kind), f, hasQ));
             }
+        }
+        // ── Project + person kinds — bespoke branches with the same 12-column
+        //    shape. Each is included only when (a) requested via `types` and
+        //    (b) no active filter is structurally incompatible with the kind
+        //    (e.g. a language/genre filter can never match a project, so the
+        //    project branch is simply omitted instead of emitting dead SQL).
+        if (wants(f, KIND_PROJECT) && projectCompatible(f)) {
+            branches.add(projectBranchSql(f, hasQ));
+        }
+        if (wants(f, KIND_PERSON) && personCompatible(f)) {
+            branches.add(personBranchSql(f, hasQ));
         }
         if (branches.isEmpty()) {
             // No requested kinds — fall back to empty set so the page is empty.
@@ -296,6 +312,180 @@ final class GuestFeedSqlBuilder {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * Project branch. Emits the same 12-column card shape as the media
+     * branches so it can be UNION ALL'd into the feed. {@code project_id} is
+     * set to the project's own id, so the downstream batch hydration fills in
+     * its categories and owning-person header exactly like a media card.
+     *
+     * <p>A project carries no language/dialect/region/datePublished and no
+     * subject/genre collections — those filters drop the branch upstream
+     * ({@link #projectCompatible}), so only project-applicable predicates are
+     * emitted here.
+     */
+    private static String projectBranchSql(Filters f, boolean hasQ) {
+        StringBuilder sb = new StringBuilder(1024);
+        sb.append("SELECT 'project' AS kind, p.id AS id, p.project_code AS code, ")
+          .append("COALESCE(NULLIF(p.project_name, ''), p.project_code) AS title, ")
+          .append("p.id AS project_id, ")
+          .append("CAST(NULL AS text) AS language, CAST(NULL AS text) AS dialect, ")
+          .append("CAST(NULL AS text) AS region, ")
+          .append("p.created_at AS date_created, ")
+          .append("CAST(NULL AS timestamp) AS date_published, ")
+          .append("CAST(NULL AS text) AS file_url, ");
+
+        if (hasQ) {
+            sb.append("(")
+              .append("(CASE WHEN LOWER(COALESCE(p.project_name, '')) LIKE :qPrefix THEN 3 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(p.project_name, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(p.project_code, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(p.description, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.full_name, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.nickname, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.romanized_name, '')) LIKE :qLike THEN 2 ELSE 0 END)")
+              .append(") AS score ");
+        } else {
+            sb.append("CAST(0 AS double precision) AS score ");
+        }
+
+        sb.append("FROM projects p ")
+          .append("LEFT JOIN person per ON per.id = p.person_id ")
+          .append("WHERE p.removed_at IS NULL AND COALESCE(p.is_visible_to_public, TRUE) = TRUE ");
+
+        if (notBlank(f.projectCode)) {
+            sb.append("AND LOWER(p.project_code) = :projectCode ");
+        }
+        if (notBlank(f.categoryCode)) {
+            sb.append("AND EXISTS (SELECT 1 FROM project_categories pc ")
+              .append("JOIN categories c ON c.id = pc.category_id ")
+              .append("WHERE pc.project_id = p.id AND LOWER(c.category_code) = :categoryCode) ");
+        }
+        if (notBlank(f.personCode)) {
+            sb.append("AND LOWER(per.person_code) = :personCode ");
+        }
+        if (f.dateFrom != null) {
+            sb.append("AND p.created_at >= :dateFrom ");
+        }
+        if (f.dateTo != null) {
+            sb.append("AND p.created_at <= :dateTo ");
+        }
+        if (notEmpty(f.tags)) {
+            sb.append("AND EXISTS (SELECT 1 FROM project_tags x WHERE x.project_id = p.id ")
+              .append("AND LOWER(x.tag) IN (:tags)) ");
+        }
+        if (notEmpty(f.keywords)) {
+            sb.append("AND EXISTS (SELECT 1 FROM project_keywords x WHERE x.project_id = p.id ")
+              .append("AND LOWER(x.keyword) IN (:keywords)) ");
+        }
+        if (hasQ) {
+            sb.append("AND (")
+              .append("LOWER(COALESCE(p.project_name, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(p.project_code, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(p.description, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.full_name, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.nickname, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.romanized_name, '')) LIKE :qLike ")
+              .append("OR EXISTS (SELECT 1 FROM project_tags x WHERE x.project_id = p.id AND LOWER(x.tag) LIKE :qLike) ")
+              .append("OR EXISTS (SELECT 1 FROM project_keywords x WHERE x.project_id = p.id AND LOWER(x.keyword) LIKE :qLike) ")
+              .append(") ");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Person branch. Same 12-column card shape. {@code project_id} is NULL
+     * (a person is not owned by a project), so {@link
+     * ak.dev.khi_archive_platform.platform.service.guest.GuestSearchService}
+     * fills the person header fields directly from this row instead. The
+     * portrait URL rides in the {@code file_url} slot so the card has an image.
+     *
+     * <p>Persons have no per-row {@code is_public} flag — visibility is simply
+     * "not soft-deleted" ({@code removed_at IS NULL}). They support q,
+     * personCode, region and a created-at date range; every other filter drops
+     * the branch upstream ({@link #personCompatible}).
+     */
+    private static String personBranchSql(Filters f, boolean hasQ) {
+        StringBuilder sb = new StringBuilder(1024);
+        sb.append("SELECT 'person' AS kind, per.id AS id, per.person_code AS code, ")
+          .append("COALESCE(NULLIF(per.full_name, ''), NULLIF(per.nickname, ''), ")
+          .append("NULLIF(per.romanized_name, ''), per.person_code) AS title, ")
+          .append("CAST(NULL AS bigint) AS project_id, ")
+          .append("CAST(NULL AS text) AS language, CAST(NULL AS text) AS dialect, ")
+          .append("per.region AS region, ")
+          .append("per.created_at AS date_created, ")
+          .append("CAST(NULL AS timestamp) AS date_published, ")
+          .append("per.media_portrait AS file_url, ");
+
+        if (hasQ) {
+            sb.append("(")
+              .append("(CASE WHEN LOWER(COALESCE(per.full_name, '')) LIKE :qPrefix THEN 3 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.nickname, '')) LIKE :qPrefix THEN 3 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.romanized_name, '')) LIKE :qPrefix THEN 3 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.full_name, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.nickname, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.romanized_name, '')) LIKE :qLike THEN 1 ELSE 0 END) + ")
+              .append("(CASE WHEN LOWER(COALESCE(per.description, '')) LIKE :qLike THEN 1 ELSE 0 END)")
+              .append(") AS score ");
+        } else {
+            sb.append("CAST(0 AS double precision) AS score ");
+        }
+
+        sb.append("FROM person per WHERE per.removed_at IS NULL ");
+
+        if (notBlank(f.personCode)) {
+            sb.append("AND LOWER(per.person_code) = :personCode ");
+        }
+        if (notBlank(f.region)) {
+            sb.append("AND LOWER(COALESCE(per.region, '')) = :region ");
+        }
+        if (f.dateFrom != null) {
+            sb.append("AND per.created_at >= :dateFrom ");
+        }
+        if (f.dateTo != null) {
+            sb.append("AND per.created_at <= :dateTo ");
+        }
+        if (hasQ) {
+            sb.append("AND (")
+              .append("LOWER(COALESCE(per.full_name, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.nickname, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.romanized_name, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.person_code, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.description, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.region, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.tag, '')) LIKE :qLike ")
+              .append("OR LOWER(COALESCE(per.keywords, '')) LIKE :qLike ")
+              .append(") ");
+        }
+        return sb.toString();
+    }
+
+    /** True when this kind is unfiltered-in (no `types` filter) or explicitly requested. */
+    private static boolean wants(Filters f, String kind) {
+        return f.types == null || f.types.isEmpty() || f.types.contains(kind);
+    }
+
+    /**
+     * A project can satisfy only project-shaped filters. If the caller set a
+     * media-only filter (language/dialect/region/subject/genre) the project
+     * branch can never match, so it's dropped from the UNION entirely.
+     */
+    private static boolean projectCompatible(Filters f) {
+        return !notBlank(f.language) && !notBlank(f.dialect) && !notBlank(f.region)
+                && !notEmpty(f.subjects) && !notEmpty(f.genres);
+    }
+
+    /**
+     * A person supports q, personCode, region and date only. Any project /
+     * category / language / dialect / subject / genre / tag / keyword filter
+     * drops the person branch from the UNION.
+     */
+    private static boolean personCompatible(Filters f) {
+        return !notBlank(f.projectCode) && !notBlank(f.categoryCode)
+                && !notBlank(f.language)  && !notBlank(f.dialect)
+                && !notEmpty(f.subjects)  && !notEmpty(f.genres)
+                && !notEmpty(f.tags)      && !notEmpty(f.keywords);
     }
 
     private static void bindCommonFilters(Filters f, Map<String, Object> params) {

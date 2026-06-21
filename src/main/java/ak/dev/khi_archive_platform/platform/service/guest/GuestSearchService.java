@@ -1012,8 +1012,9 @@ public class GuestSearchService {
      *
      * @param q              free-text — matches titles, codes, description,
      *                       project name, person name, tags, keywords, subjects, genres
-     * @param typesIn        which kinds to include ({@code audio|video|image|text});
-     *                       null/empty = all four
+     * @param typesIn        which kinds to include
+     *                       ({@code audio|video|image|text|project|person});
+     *                       null/empty = all six
      * @param projectCode    exact project code
      * @param categoryCode   exact category code
      * @param personCode     exact person code (via the project's owner)
@@ -1109,13 +1110,18 @@ public class GuestSearchService {
         // Column layout: kind, id, code, title, project_id,
         //                language, dialect, region,
         //                date_created, date_published, file_url, score
+        String kind = (String) r[0];
         Long projectId = (r[4] == null) ? null : ((Number) r[4]).longValue();
         ProjectInfo pi = (projectId == null) ? null : projectInfo.get(projectId);
-        return GuestFeedItemDTO.builder()
-                .kind((String) r[0])
+        String code = (String) r[2];
+        String title = (String) r[3];
+        String fileUrl = (String) r[10];
+
+        GuestFeedItemDTO dto = GuestFeedItemDTO.builder()
+                .kind(kind)
                 .id(r[1] == null ? null : ((Number) r[1]).longValue())
-                .code((String) r[2])
-                .title((String) r[3])
+                .code(code)
+                .title(title)
                 .projectCode(pi == null ? null : pi.code)
                 .projectName(pi == null ? null : pi.name)
                 .personCode(pi == null ? null : pi.personCode)
@@ -1128,9 +1134,19 @@ public class GuestSearchService {
                 .region((String) r[7])
                 .dateCreated(asInstant(r[8]))
                 .datePublished(asInstant(r[9]))
-                .fileUrl((String) r[10])
+                .fileUrl(fileUrl)
                 .score(r[11] == null ? 0.0 : ((Number) r[11]).doubleValue())
                 .build();
+
+        // A person row has no owning project, so the header fields above stay
+        // null. Fill them from the row itself: the card's subject IS the person,
+        // and the portrait rides in the file_url slot.
+        if (GuestFeedSqlBuilder.KIND_PERSON.equals(kind)) {
+            dto.setPersonCode(code);
+            dto.setPersonName(title);
+            dto.setPersonMediaPortrait(fileUrl);
+        }
+        return dto;
     }
 
     private record ProjectInfo(String code, String name, String personCode,
@@ -1208,20 +1224,27 @@ public class GuestSearchService {
         return null;
     }
 
+    /** Every kind the unified feed can surface — the default when no {@code types} filter is sent. */
+    private static final Set<String> ALL_FEED_KINDS =
+            Set.of("audio", "video", "text", "image", "project", "person");
+
     private static Set<String> parseTypes(List<String> in) {
-        if (in == null || in.isEmpty()) return Set.of("audio", "video", "text", "image");
+        if (in == null || in.isEmpty()) return ALL_FEED_KINDS;
         Set<String> out = new LinkedHashSet<>();
         for (String s : in) {
             if (s == null) continue;
             switch (s.trim().toLowerCase(Locale.ROOT)) {
-                case "audio", "audios" -> out.add("audio");
-                case "video", "videos" -> out.add("video");
-                case "text", "texts"   -> out.add("text");
-                case "image", "images" -> out.add("image");
+                case "audio", "audios"     -> out.add("audio");
+                case "video", "videos"     -> out.add("video");
+                case "text", "texts"       -> out.add("text");
+                case "image", "images"     -> out.add("image");
+                case "project", "projects",
+                     "collection", "collections" -> out.add("project");
+                case "person", "persons", "people" -> out.add("person");
                 default -> { /* ignore unknown */ }
             }
         }
-        return out.isEmpty() ? Set.of("audio", "video", "text", "image") : out;
+        return out.isEmpty() ? ALL_FEED_KINDS : out;
     }
 
     private static Comparator<GuestUnifiedResultDTO> unifiedComparator(String sortBy, String sortDirection) {
