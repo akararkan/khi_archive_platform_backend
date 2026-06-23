@@ -1012,9 +1012,11 @@ public class GuestSearchService {
      *
      * @param q              free-text — matches titles, codes, description,
      *                       project name, person name, tags, keywords, subjects, genres
-     * @param typesIn        which kinds to include
-     *                       ({@code audio|video|image|text|project|person});
-     *                       null/empty = all six
+     * @param typesIn        which media kinds to include
+     *                       ({@code image|video|audio|text}); null/empty = all
+     *                       four. Projects and persons are never returned.
+     *                       Rows are always grouped photos → videos → sounds →
+     *                       texts; {@code sortBy} orders within each group.
      * @param projectCode    exact project code
      * @param categoryCode   exact category code
      * @param personCode     exact person code (via the project's owner)
@@ -1109,7 +1111,9 @@ public class GuestSearchService {
                                                   Map<Long, List<GuestCategorySummaryDTO>> catsByProject) {
         // Column layout: kind, id, code, title, project_id,
         //                language, dialect, region,
-        //                date_created, date_published, file_url, score
+        //                date_created, date_published, file_url, score, kind_rank
+        // (kind_rank, the trailing column, is read by the SQL ORDER BY only —
+        //  it never needs hydrating here.)
         String kind = (String) r[0];
         Long projectId = (r[4] == null) ? null : ((Number) r[4]).longValue();
         ProjectInfo pi = (projectId == null) ? null : projectInfo.get(projectId);
@@ -1137,15 +1141,6 @@ public class GuestSearchService {
                 .fileUrl(fileUrl)
                 .score(r[11] == null ? 0.0 : ((Number) r[11]).doubleValue())
                 .build();
-
-        // A person row has no owning project, so the header fields above stay
-        // null. Fill them from the row itself: the card's subject IS the person,
-        // and the portrait rides in the file_url slot.
-        if (GuestFeedSqlBuilder.KIND_PERSON.equals(kind)) {
-            dto.setPersonCode(code);
-            dto.setPersonName(title);
-            dto.setPersonMediaPortrait(fileUrl);
-        }
         return dto;
     }
 
@@ -1224,9 +1219,14 @@ public class GuestSearchService {
         return null;
     }
 
-    /** Every kind the unified feed can surface — the default when no {@code types} filter is sent. */
+    /**
+     * The four media kinds the feed can surface — the default when no
+     * {@code types} filter is sent. The feed is media-only: projects and
+     * persons are NOT part of it (they have their own endpoints), so they're
+     * absent here and any {@code types=project|person} request is ignored.
+     */
     private static final Set<String> ALL_FEED_KINDS =
-            Set.of("audio", "video", "text", "image", "project", "person");
+            Set.of("image", "video", "audio", "text");
 
     private static Set<String> parseTypes(List<String> in) {
         if (in == null || in.isEmpty()) return ALL_FEED_KINDS;
@@ -1234,14 +1234,11 @@ public class GuestSearchService {
         for (String s : in) {
             if (s == null) continue;
             switch (s.trim().toLowerCase(Locale.ROOT)) {
-                case "audio", "audios"     -> out.add("audio");
-                case "video", "videos"     -> out.add("video");
-                case "text", "texts"       -> out.add("text");
-                case "image", "images"     -> out.add("image");
-                case "project", "projects",
-                     "collection", "collections" -> out.add("project");
-                case "person", "persons", "people" -> out.add("person");
-                default -> { /* ignore unknown */ }
+                case "image", "images", "photo", "photos"  -> out.add("image");
+                case "video", "videos"                     -> out.add("video");
+                case "audio", "audios", "sound", "sounds"  -> out.add("audio");
+                case "text", "texts"                       -> out.add("text");
+                default -> { /* ignore unknown — incl. project / person */ }
             }
         }
         return out.isEmpty() ? ALL_FEED_KINDS : out;

@@ -146,7 +146,7 @@ public class GuestSearchAPI {
     // ─── Unified feed (fastest cross-entity endpoint) ────────────────────────────
 
     /**
-     * Single paginated feed across every media kind — the recommended
+     * Single paginated feed across the four media kinds — the recommended
      * browse-and-search endpoint for the public site.
      *
      * <p>One PostgreSQL round-trip via a UNION ALL native query returns the
@@ -154,25 +154,28 @@ public class GuestSearchAPI {
      * pagination happen on the DB so the JVM only handles ≤ {@code size}
      * rows per call regardless of corpus size.
      *
-     * <p>Use this for: the home page browse grid, the search-results page,
-     * the "All items" tab, and any "show me everything matching X" UI. This is
-     * the ONE call that replaces fanning out to every {@code getAll()} — it
-     * returns audio, video, image, text, projects AND persons interleaved in a
-     * single ranked, paginated stream from one DB round-trip. Per-type
-     * endpoints ({@code /audios}, {@code /videos}, …) stay around for
-     * media-specific filters (singer, ISBN, frame rate, …).
+     * <p><strong>The feed is media-only.</strong> It returns
+     * <em>image, video, audio and text</em> cards interleaved into one ranked,
+     * paginated stream — projects and persons are NOT included here (browse
+     * those via {@code /projects} and {@code /persons}). Per-type endpoints
+     * ({@code /audios}, {@code /videos}, …) stay around for media-specific
+     * filters (singer, ISBN, frame rate, …).
+     *
+     * <p><strong>Ordering.</strong> The feed is always grouped by media kind
+     * in a fixed order — <em>photos → videos → sounds → texts</em>. The
+     * {@code sortBy}/{@code sortDirection} below only order rows
+     * <em>within</em> each kind block, so a page fills with images first, then
+     * videos, then audios, then texts.
      *
      * <p>Filters supported (all optional):
      * <ul>
      *   <li>{@code q} — free text matched against titles, codes,
      *       description, project name, person name, tags, keywords,
      *       subjects, genres on every kind.</li>
-     *   <li>{@code types} — which kinds to include
-     *       ({@code audio | video | image | text | project | person};
-     *       repeat or omit for all six). Note: project/person rows are
-     *       automatically dropped when a media-only filter (language, dialect,
-     *       region, subject, genre — also project/category/tag/keyword for
-     *       persons) is set, since they can't satisfy it.</li>
+     *   <li>{@code types} — which media kinds to include
+     *       ({@code image | video | audio | text}; aliases {@code photo},
+     *       {@code sound} accepted; repeat or omit for all four). Any
+     *       {@code project}/{@code person} value is ignored.</li>
      *   <li>Common scalars: {@code projectCode}, {@code categoryCode},
      *       {@code personCode}, {@code language}, {@code dialect},
      *       {@code region}.</li>
@@ -182,7 +185,8 @@ public class GuestSearchAPI {
      *       on {@code dateCreated}.</li>
      *   <li>{@code sortBy}: {@code relevance} (default when q present)
      *       / {@code date} (default otherwise) / {@code datePublished} /
-     *       {@code title}. {@code sortDirection}: {@code asc | desc}.</li>
+     *       {@code title}. {@code sortDirection}: {@code asc | desc}.
+     *       Applied within each media-kind block.</li>
      * </ul>
      */
     @GetMapping("/feed")

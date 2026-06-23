@@ -32,17 +32,16 @@ public class GuestFeedItemDTO implements Serializable {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    /** audio | video | image | text | project | person */
+    /** image | video | audio | text — the feed is media-only. */
     private String kind;
 
     /** DB primary key — useful for stable client-side keys. */
     private Long id;
 
     /**
-     * Business code — used to deep-link into the matching detail endpoint:
-     * audioCode → /api/guest/audios/{code}, videoCode, imageCode, textCode,
-     * projectCode → /api/guest/projects/{code},
-     * personCode  → /api/guest/persons/{code}.
+     * Business code — used to deep-link into the matching detail endpoint by
+     * kind: image → /api/guest/images/{code}, video → /api/guest/videos/{code},
+     * audio → /api/guest/audios/{code}, text → /api/guest/texts/{code}.
      */
     private String code;
 
