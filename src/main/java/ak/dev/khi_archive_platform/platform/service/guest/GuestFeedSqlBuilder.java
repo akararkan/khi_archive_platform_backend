@@ -13,12 +13,12 @@ import java.util.Set;
  *
  * <h3>Algorithm</h3>
  * One <strong>UNION ALL</strong> across the four media kinds only —
- * {@code image}, {@code video}, {@code audio}, {@code text} (no project, no
+ * {@code image}, {@code audio}, {@code video}, {@code text} (no project, no
  * person; those have their own endpoints) — all paginated on the PostgreSQL
  * side. Every branch SELECTs the identical 13-column card shape so they stack
  * into one stream. The 13th column is a constant {@code kind_rank}
- * (image=0, video=1, audio=2, text=3) so the wrapper can group the page in a
- * fixed display order — <strong>photos → videos → sounds → texts</strong> —
+ * (image=0, audio=1, video=2, text=3) so the wrapper can group the page in a
+ * fixed display order — <strong>photos → sounds → videos → texts</strong> —
  * as the primary sort, with the caller's sortBy ordering rows within each
  * block. Each branch:
  * <ul>
@@ -46,7 +46,7 @@ final class GuestFeedSqlBuilder {
     /** Concrete metadata for one media kind so the per-branch SQL stays uniform. */
     private record KindSpec(
             String kind,                  // "audio" | "video" | "image" | "text"
-            int rank,                     // fixed feed display order: image 0, video 1, audio 2, text 3
+            int rank,                     // fixed feed display order: image 0, audio 1, video 2, text 3
             String table,                 // "audios"
             String codeCol,               // "audio_code"
             String fileUrlCol,            // "audio_file_url"
@@ -63,7 +63,7 @@ final class GuestFeedSqlBuilder {
     ) {}
 
     private static final KindSpec AUDIO = new KindSpec(
-            "audio", 2, "audios", "audio_code", "audio_file_url", "audio_id",
+            "audio", 1, "audios", "audio_code", "audio_file_url", "audio_id",
             "audio_tags", "tag",
             "audio_keywords", "keyword",
             "audio_genres", "genre",
@@ -71,7 +71,7 @@ final class GuestFeedSqlBuilder {
             "origin_title", "alter_title", "central_kurdish_title", "romanized_title");
 
     private static final KindSpec VIDEO = new KindSpec(
-            "video", 1, "videos", "video_code", "video_file_url", "video_id",
+            "video", 2, "videos", "video_code", "video_file_url", "video_id",
             "video_tags", "tag",
             "video_keywords", "keyword",
             "video_genres", "genre",
@@ -159,12 +159,12 @@ final class GuestFeedSqlBuilder {
         bindCommonFilters(f, params);
 
         List<String> branches = new ArrayList<>(4);
-        // ── Media kinds only — image/video/audio/text. The feed is a pure
+        // ── Media kinds only — image/audio/video/text. The feed is a pure
         //    media stream; projects and persons are NOT part of it (they have
         //    their own endpoints). Branches are emitted in the same fixed
-        //    display order the feed renders in — photos → videos → sounds →
+        //    display order the feed renders in — photos → sounds → videos →
         //    texts — though the kind_rank ORDER BY is what actually enforces it.
-        for (String kind : List.of(KIND_IMAGE, KIND_VIDEO, KIND_AUDIO, KIND_TEXT)) {
+        for (String kind : List.of(KIND_IMAGE, KIND_AUDIO, KIND_VIDEO, KIND_TEXT)) {
             if (wants(f, kind)) {
                 branches.add(branchSql(SPECS.get(kind), f, hasQ));
             }
@@ -227,8 +227,8 @@ final class GuestFeedSqlBuilder {
             sb.append("CAST(0 AS double precision) AS score ");
         }
 
-        // Constant kind_rank — drives the fixed photos→videos→sounds→texts
-        // grouping in the wrapper ORDER BY (image 0, video 1, audio 2, text 3).
+        // Constant kind_rank — drives the fixed photos→sounds→videos→texts
+        // grouping in the wrapper ORDER BY (image 0, audio 1, video 2, text 3).
         sb.append(", ").append(k.rank()).append(" AS kind_rank ");
 
         sb.append("FROM ").append(k.table).append(" e ")
@@ -359,7 +359,7 @@ final class GuestFeedSqlBuilder {
             primary = primary.replace("ASC NULLS LAST", "DESC NULLS LAST");
         }
         // Media kind is ALWAYS the primary grouping — the feed renders in the
-        // fixed order photos → videos → sounds → texts (kind_rank 0/1/2/3).
+        // fixed order photos → sounds → videos → texts (kind_rank 0/1/2/3).
         // The caller's sortBy/sortDirection only orders rows *within* each kind.
         return "ORDER BY kind_rank ASC, " + primary + ", id ASC";
     }

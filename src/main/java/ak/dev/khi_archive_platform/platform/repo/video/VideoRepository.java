@@ -72,11 +72,21 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
     /** Active videos in a project — guest browse path skips trashed rows. */
     List<Video> findAllByProjectAndRemovedAtIsNull(Project project);
 
-    /** Active videos across a batch of projects — drives the unified guest /results scope expansion. */
+    /** Active videos across a batch of projects — drives guest search scope expansion. */
     List<Video> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
 
     /** Active count for the per-project media-counts badge on guest pages. */
     long countByProjectAndRemovedAtIsNull(Project project);
+
+    /** Public active count for the per-project media-counts badge on guest pages. */
+    @Query("""
+            SELECT COUNT(v)
+              FROM Video v
+             WHERE v.project = :project
+               AND v.removedAt IS NULL
+               AND (v.isPublic IS NULL OR v.isPublic = true)
+            """)
+    long countPublicByProject(@Param("project") Project project);
 
     long countByProjectAndVideoVersionAndVersionNumber(Project project, String videoVersion, Integer versionNumber);
 

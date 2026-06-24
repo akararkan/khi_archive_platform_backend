@@ -11,7 +11,6 @@ import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestTextDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestTrendingDTO;
-import ak.dev.khi_archive_platform.platform.dto.guest.GuestUnifiedResultDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestVideoDTO;
 import ak.dev.khi_archive_platform.platform.enums.Gender;
 import ak.dev.khi_archive_platform.platform.service.guest.GuestSearchService;
@@ -101,48 +100,6 @@ public class GuestSearchAPI {
         return ResponseEntity.ok(guestSearchService.facets());
     }
 
-    /**
-     * Unified ranked feed across the chosen media types — the primary
-     * search-bar + filters endpoint.
-     *
-     * <p>{@code q} is a general keyword: it matches media titles AND person
-     * names AND project/collection names. Filters narrow the result set
-     * (category, person, project, language, dialect, tag, keyword, date).
-     * {@code types} chooses which media kinds appear in the feed (any
-     * combination of {@code audio | video | text | image}); omit it for all.
-     *
-     * <p>Example — "speeches by Hasan Zirak, audio + video":
-     * <pre>
-     *   GET /api/guest/results
-     *       ?q=hasan+zirak
-     *       &amp;categoryCode=speeches
-     *       &amp;types=audio&amp;types=video
-     *       &amp;sortBy=relevance
-     * </pre>
-     */
-    @GetMapping("/results")
-    public ResponseEntity<Page<GuestUnifiedResultDTO>> results(
-            @RequestParam(value = "q", required = false) String q,
-            @RequestParam(value = "types", required = false) List<String> types,
-            @RequestParam(value = "projectCode", required = false) String projectCode,
-            @RequestParam(value = "categoryCode", required = false) String categoryCode,
-            @RequestParam(value = "personCode", required = false) String personCode,
-            @RequestParam(value = "language", required = false) String language,
-            @RequestParam(value = "dialect", required = false) String dialect,
-            @RequestParam(value = "tag", required = false) List<String> tags,
-            @RequestParam(value = "keyword", required = false) List<String> keywords,
-            @RequestParam(value = "dateFrom", required = false) String dateFrom,
-            @RequestParam(value = "dateTo", required = false) String dateTo,
-            @RequestParam(value = "sortBy", required = false) String sortBy,
-            @RequestParam(value = "sortDirection", required = false) String sortDirection,
-            @PageableDefault(size = 50) Pageable pageable
-    ) {
-        return ResponseEntity.ok(guestSearchService.unifiedResults(
-                q, types, projectCode, categoryCode, personCode,
-                language, dialect, tags, keywords,
-                parseStart(dateFrom), parseEnd(dateTo), sortBy, sortDirection, pageable));
-    }
-
     // ─── Unified feed (fastest cross-entity endpoint) ────────────────────────────
 
     /**
@@ -155,17 +112,17 @@ public class GuestSearchAPI {
      * rows per call regardless of corpus size.
      *
      * <p><strong>The feed is media-only.</strong> It returns
-     * <em>image, video, audio and text</em> cards interleaved into one ranked,
+     * <em>image, audio, video and text</em> cards interleaved into one ranked,
      * paginated stream — projects and persons are NOT included here (browse
      * those via {@code /projects} and {@code /persons}). Per-type endpoints
      * ({@code /audios}, {@code /videos}, …) stay around for media-specific
      * filters (singer, ISBN, frame rate, …).
      *
      * <p><strong>Ordering.</strong> The feed is always grouped by media kind
-     * in a fixed order — <em>photos → videos → sounds → texts</em>. The
+     * in a fixed order — <em>photos → sounds → videos → texts</em>. The
      * {@code sortBy}/{@code sortDirection} below only order rows
      * <em>within</em> each kind block, so a page fills with images first, then
-     * videos, then audios, then texts.
+     * audios, then videos, then texts.
      *
      * <p>Filters supported (all optional):
      * <ul>

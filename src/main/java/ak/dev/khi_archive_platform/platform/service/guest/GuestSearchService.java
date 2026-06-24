@@ -11,7 +11,6 @@ import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestTextDTO;
-import ak.dev.khi_archive_platform.platform.dto.guest.GuestUnifiedResultDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestVideoDTO;
 import ak.dev.khi_archive_platform.platform.enums.Gender;
 import ak.dev.khi_archive_platform.platform.model.audio.Audio;
@@ -121,28 +120,29 @@ public class GuestSearchService {
         trendingService.logSearch(norm);
         String like = MediaSearchSqlBuilder.escapeLike(norm);
 
-        List<Project> projectHits = projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
+        List<Project> projectHits = projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit)
+                .stream().filter(GuestSearchService::isProjectPubliclyVisible).toList();
         List<Category> categoryHits = categoryRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
         List<Person> personHits = personRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
         List<Project> scope = resolveProjectScope(norm);
         List<Audio> audioHits = capById(widenAudios(
                 audioRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
-                .stream().filter(a -> Boolean.TRUE.equals(a.getIsPublic())).toList();
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Video> videoHits = capById(widenVideos(
                 videoRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
-                .stream().filter(v -> Boolean.TRUE.equals(v.getIsPublic())).toList();
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Text> textHits = capById(widenTexts(
                 textRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
-                .stream().filter(t -> Boolean.TRUE.equals(t.getIsPublic())).toList();
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Image> imageHits = capById(widenImages(
                 imageRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
-                .stream().filter(i -> Boolean.TRUE.equals(i.getIsPublic())).toList();
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
 
         return GuestGlobalSearchDTO.builder()
                 .query(norm)
                 .projects(section(projectHits, p -> GuestMapper.toProject(p, mediaCounts(p))))
-                .categories(section(categoryHits, c -> GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c))))
-                .persons(section(personHits, p -> GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p))))
+                .categories(section(categoryHits, c -> GuestMapper.toCategory(c, publicProjectCount(c))))
+                .persons(section(personHits, p -> GuestMapper.toPerson(p, publicProjectCount(p))))
                 .audios(section(audioHits, GuestMapper::toAudio))
                 .videos(section(videoHits, GuestMapper::toVideo))
                 .texts(section(textHits, GuestMapper::toText))
@@ -181,6 +181,7 @@ public class GuestSearchService {
 
         List<Project> filtered = new ArrayList<>(source.size());
         for (Project p : source) {
+            if (!isProjectPubliclyVisible(p)) continue;
             if (wantedPerson != null) {
                 Person ps = p.getPerson();
                 if (ps == null || ps.getPersonCode() == null
@@ -217,6 +218,7 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Optional<GuestProjectDTO> getProjectByCode(String projectCode) {
         return projectRepository.findByProjectCodeAndRemovedAtIsNull(projectCode)
+                .filter(GuestSearchService::isProjectPubliclyVisible)
                 .map(p -> {
                     trendingService.logView("project", projectCode);
                     return GuestMapper.toProject(p, mediaCounts(p));
@@ -226,7 +228,7 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Map<String, Object> getProjectMedia(String projectCode, String type) {
         Project project = projectRepository.findByProjectCodeAndRemovedAtIsNull(projectCode).orElse(null);
-        if (project == null) return null;
+        if (!isProjectPubliclyVisible(project)) return null;
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("projectCode", project.getProjectCode());
@@ -235,22 +237,22 @@ public class GuestSearchService {
         boolean all = type == null || type.isBlank() || "all".equalsIgnoreCase(type);
         if (all || "audio".equalsIgnoreCase(type) || "audios".equalsIgnoreCase(type)) {
             out.put("audios", audioRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().filter(a -> Boolean.TRUE.equals(a.getIsPublic()))
+                    .stream().filter(GuestSearchService::isPubliclyVisible)
                     .map(GuestMapper::toAudio).toList());
         }
         if (all || "video".equalsIgnoreCase(type) || "videos".equalsIgnoreCase(type)) {
             out.put("videos", videoRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().filter(v -> Boolean.TRUE.equals(v.getIsPublic()))
+                    .stream().filter(GuestSearchService::isPubliclyVisible)
                     .map(GuestMapper::toVideo).toList());
         }
         if (all || "text".equalsIgnoreCase(type) || "texts".equalsIgnoreCase(type)) {
             out.put("texts", textRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().filter(t -> Boolean.TRUE.equals(t.getIsPublic()))
+                    .stream().filter(GuestSearchService::isPubliclyVisible)
                     .map(GuestMapper::toText).toList());
         }
         if (all || "image".equalsIgnoreCase(type) || "images".equalsIgnoreCase(type)) {
             out.put("images", imageRepository.findAllByProjectAndRemovedAtIsNull(project)
-                    .stream().filter(i -> Boolean.TRUE.equals(i.getIsPublic()))
+                    .stream().filter(GuestSearchService::isPubliclyVisible)
                     .map(GuestMapper::toImage).toList());
         }
         return out;
@@ -271,7 +273,7 @@ public class GuestSearchService {
 
         return stampPage(
                 paginate(source, pageable,
-                        c -> GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c))),
+                        c -> GuestMapper.toCategory(c, publicProjectCount(c))),
                 "category", GuestCategoryDTO::getCategoryCode, GuestSearchService::applyMark);
     }
 
@@ -280,7 +282,7 @@ public class GuestSearchService {
         return categoryRepository.findByCategoryCodeAndRemovedAtIsNull(categoryCode)
                 .map(c -> {
                     trendingService.logView("category", categoryCode);
-                    return GuestMapper.toCategory(c, projectRepository.countActiveByCategory(c));
+                    return GuestMapper.toCategory(c, publicProjectCount(c));
                 });
     }
 
@@ -289,6 +291,7 @@ public class GuestSearchService {
         Category cat = categoryRepository.findByCategoryCodeAndRemovedAtIsNull(categoryCode).orElse(null);
         if (cat == null) return Page.empty(pageable);
         List<Project> rows = projectRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isProjectPubliclyVisible)
                 .filter(p -> p.getCategories() != null
                         && p.getCategories().stream().anyMatch(c -> Objects.equals(c.getId(), cat.getId())))
                 .sorted(Comparator.comparing(Project::getProjectName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
@@ -326,7 +329,7 @@ public class GuestSearchService {
 
         return stampPage(
                 paginate(filtered, pageable,
-                        p -> GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p))),
+                        p -> GuestMapper.toPerson(p, publicProjectCount(p))),
                 "person", GuestPersonDTO::getPersonCode, GuestSearchService::applyMark);
     }
 
@@ -335,7 +338,7 @@ public class GuestSearchService {
         return personRepository.findByPersonCodeAndRemovedAtIsNull(personCode)
                 .map(p -> {
                     trendingService.logView("person", personCode);
-                    return GuestMapper.toPerson(p, projectRepository.countByPersonAndRemovedAtIsNull(p));
+                    return GuestMapper.toPerson(p, publicProjectCount(p));
                 });
     }
 
@@ -343,7 +346,9 @@ public class GuestSearchService {
     public Page<GuestProjectDTO> getPersonProjects(String personCode, Pageable pageable) {
         Person person = personRepository.findByPersonCodeAndRemovedAtIsNull(personCode).orElse(null);
         if (person == null) return Page.empty(pageable);
-        List<Project> rows = projectRepository.findAllByPersonAndRemovedAtIsNull(person);
+        List<Project> rows = projectRepository.findAllByPersonAndRemovedAtIsNull(person).stream()
+                .filter(GuestSearchService::isProjectPubliclyVisible)
+                .collect(Collectors.toCollection(ArrayList::new));
         rows.sort(Comparator.comparing(Project::getProjectName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
         return stampPage(paginate(rows, pageable, p -> GuestMapper.toProject(p, mediaCounts(p))),
                 "project", GuestProjectDTO::getProjectCode, GuestSearchService::applyMark);
@@ -423,7 +428,7 @@ public class GuestSearchService {
 
         List<Audio> filtered = new ArrayList<>(source.size());
         for (Audio a : source) {
-            if (!Boolean.TRUE.equals(a.getIsPublic())) continue;
+            if (!isPubliclyVisible(a)) continue;
             if (!projectMatches(a.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(a.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(a.getDialect(), wDialect)) continue;
@@ -465,7 +470,7 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Optional<GuestAudioDTO> getAudioByCode(String audioCode) {
         return audioRepository.findByAudioCodeAndRemovedAtIsNull(audioCode)
-                .filter(a -> Boolean.TRUE.equals(a.getIsPublic()))
+                .filter(GuestSearchService::isPubliclyVisible)
                 .map(a -> {
                     trendingService.logView("audio", audioCode);
                     return GuestMapper.toAudio(a);
@@ -542,7 +547,7 @@ public class GuestSearchService {
 
         List<Video> filtered = new ArrayList<>(source.size());
         for (Video v : source) {
-            if (!Boolean.TRUE.equals(v.getIsPublic())) continue;
+            if (!isPubliclyVisible(v)) continue;
             if (!projectMatches(v.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(v.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(v.getDialect(), wDialect)) continue;
@@ -582,7 +587,7 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Optional<GuestVideoDTO> getVideoByCode(String videoCode) {
         return videoRepository.findByVideoCodeAndRemovedAtIsNull(videoCode)
-                .filter(v -> Boolean.TRUE.equals(v.getIsPublic()))
+                .filter(GuestSearchService::isPubliclyVisible)
                 .map(v -> {
                     trendingService.logView("video", videoCode);
                     return GuestMapper.toVideo(v);
@@ -659,7 +664,7 @@ public class GuestSearchService {
 
         List<Text> filtered = new ArrayList<>(source.size());
         for (Text t : source) {
-            if (!Boolean.TRUE.equals(t.getIsPublic())) continue;
+            if (!isPubliclyVisible(t)) continue;
             if (!projectMatches(t.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(t.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(t.getDialect(), wDialect)) continue;
@@ -699,7 +704,7 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Optional<GuestTextDTO> getTextByCode(String textCode) {
         return textRepository.findByTextCodeAndRemovedAtIsNull(textCode)
-                .filter(t -> Boolean.TRUE.equals(t.getIsPublic()))
+                .filter(GuestSearchService::isPubliclyVisible)
                 .map(t -> {
                     trendingService.logView("text", textCode);
                     return GuestMapper.toText(t);
@@ -772,7 +777,7 @@ public class GuestSearchService {
 
         List<Image> filtered = new ArrayList<>(source.size());
         for (Image i : source) {
-            if (!Boolean.TRUE.equals(i.getIsPublic())) continue;
+            if (!isPubliclyVisible(i)) continue;
             if (!projectMatches(i.getProject(), wProject, wCategory, wPerson)) continue;
             if (wLang != null && !equalsLower(i.getLanguage(), wLang)) continue;
             if (wDialect != null && !equalsLower(i.getDialect(), wDialect)) continue;
@@ -810,179 +815,11 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public Optional<GuestImageDTO> getImageByCode(String imageCode) {
         return imageRepository.findByImageCodeAndRemovedAtIsNull(imageCode)
-                .filter(i -> Boolean.TRUE.equals(i.getIsPublic()))
+                .filter(GuestSearchService::isPubliclyVisible)
                 .map(i -> {
                     trendingService.logView("image", imageCode);
                     return GuestMapper.toImage(i);
                 });
-    }
-
-    // ─── Unified results (cross-type ranked feed) ────────────────────────────────
-
-    /**
-     * Single ranked feed across the requested media types. Supports the
-     * KCAC-style "search + filter" workflow:
-     * <pre>
-     *   q=hasan zirak, categoryCode=speeches, types=audio,video
-     *     → all speech audios + videos whose project's person OR project name
-     *       matches "hasan zirak", merged into one paginated list.
-     * </pre>
-     *
-     * <p>Algorithm:
-     * <ol>
-     *   <li>Resolve {@code q} into a project scope: union of projects whose
-     *       own name/code matches and projects owned by a matching person.</li>
-     *   <li>Per requested type, pull title hits via {@code searchByText} and
-     *       union with media in that scope (deduped by id).</li>
-     *   <li>Apply structured filters in-memory (project/category/person/
-     *       language/dialect/tag/keyword/date range).</li>
-     *   <li>Score each row — title +3, project name +2, person +2, tag/keyword
-     *       exact match +1 — and sort by relevance, date, or title.</li>
-     *   <li>Slice for the requested page.</li>
-     * </ol>
-     */
-    @Transactional(readOnly = true)
-    public Page<GuestUnifiedResultDTO> unifiedResults(String q,
-                                                     List<String> typesIn,
-                                                     String projectCode,
-                                                     String categoryCode,
-                                                     String personCode,
-                                                     String language,
-                                                     String dialect,
-                                                     List<String> tags,
-                                                     List<String> keywords,
-                                                     Instant dateFrom,
-                                                     Instant dateTo,
-                                                     String sortBy,
-                                                     String sortDirection,
-                                                     Pageable pageable) {
-
-        String norm = normalize(q);
-        if (norm != null) trendingService.logSearch(norm);
-        Set<String> types = parseTypes(typesIn);
-
-        // Scope expansion + attribution sets — one round-trip each.
-        List<Project> projectScope = resolveProjectScope(norm);
-        Set<Long> projectMatchIds = (norm == null) ? Set.of()
-                : projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, MAX_LIMIT)
-                .stream().map(Project::getId).collect(Collectors.toSet());
-        Set<Long> personMatchIds = (norm == null) ? Set.of()
-                : personRepository.searchByText(norm, SIMILARITY_THRESHOLD, MAX_LIMIT)
-                .stream().map(Person::getId).collect(Collectors.toSet());
-
-        String wProject = lower(projectCode);
-        String wCategory = lower(categoryCode);
-        String wPerson = lower(personCode);
-        String wLang = lower(language);
-        String wDialect = lower(dialect);
-        Set<String> wTags = lowerSet(tags);
-        Set<String> wKeywords = lowerSet(keywords);
-        String qLower = (norm == null) ? null : norm.toLowerCase(Locale.ROOT);
-
-        List<GuestUnifiedResultDTO> out = new ArrayList<>();
-
-        if (types.contains("audio")) {
-            Set<Long> titleHits;
-            List<Audio> base;
-            if (norm == null) {
-                base = audioRepository.findAllByRemovedAtIsNull();
-                titleHits = Set.of();
-            } else {
-                String like = MediaSearchSqlBuilder.escapeLike(norm);
-                List<Audio> titleRows = audioRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT);
-                titleHits = titleRows.stream().map(Audio::getId).collect(Collectors.toSet());
-                base = widenAudios(titleRows, projectScope);
-            }
-            for (Audio a : base) {
-                if (!projectMatches(a.getProject(), wProject, wCategory, wPerson)) continue;
-                if (wLang != null && !equalsLower(a.getLanguage(), wLang)) continue;
-                if (wDialect != null && !equalsLower(a.getDialect(), wDialect)) continue;
-                if (!wTags.isEmpty() && !anyMatch(a.getTags(), wTags)) continue;
-                if (!wKeywords.isEmpty() && !anyMatch(a.getKeywords(), wKeywords)) continue;
-                if (!withinRange(a.getDate_created(), dateFrom, dateTo)) continue;
-                out.add(toUnifiedAudio(a, titleHits, projectMatchIds, personMatchIds, qLower));
-            }
-        }
-        if (types.contains("video")) {
-            Set<Long> titleHits;
-            List<Video> base;
-            if (norm == null) {
-                base = videoRepository.findAllByRemovedAtIsNull();
-                titleHits = Set.of();
-            } else {
-                String like = MediaSearchSqlBuilder.escapeLike(norm);
-                List<Video> titleRows = videoRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT);
-                titleHits = titleRows.stream().map(Video::getId).collect(Collectors.toSet());
-                base = widenVideos(titleRows, projectScope);
-            }
-            for (Video v : base) {
-                if (!projectMatches(v.getProject(), wProject, wCategory, wPerson)) continue;
-                if (wLang != null && !equalsLower(v.getLanguage(), wLang)) continue;
-                if (wDialect != null && !equalsLower(v.getDialect(), wDialect)) continue;
-                if (!wTags.isEmpty() && !anyMatch(v.getTags(), wTags)) continue;
-                if (!wKeywords.isEmpty() && !anyMatch(v.getKeywords(), wKeywords)) continue;
-                if (!withinRange(v.getDateCreated(), dateFrom, dateTo)) continue;
-                out.add(toUnifiedVideo(v, titleHits, projectMatchIds, personMatchIds, qLower));
-            }
-        }
-        if (types.contains("text")) {
-            Set<Long> titleHits;
-            List<Text> base;
-            if (norm == null) {
-                base = textRepository.findAllByRemovedAtIsNull();
-                titleHits = Set.of();
-            } else {
-                String like = MediaSearchSqlBuilder.escapeLike(norm);
-                List<Text> titleRows = textRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT);
-                titleHits = titleRows.stream().map(Text::getId).collect(Collectors.toSet());
-                base = widenTexts(titleRows, projectScope);
-            }
-            for (Text t : base) {
-                if (!projectMatches(t.getProject(), wProject, wCategory, wPerson)) continue;
-                if (wLang != null && !equalsLower(t.getLanguage(), wLang)) continue;
-                if (wDialect != null && !equalsLower(t.getDialect(), wDialect)) continue;
-                if (!wTags.isEmpty() && !anyMatch(t.getTags(), wTags)) continue;
-                if (!wKeywords.isEmpty() && !anyMatch(t.getKeywords(), wKeywords)) continue;
-                if (!withinRange(t.getDateCreated(), dateFrom, dateTo)) continue;
-                out.add(toUnifiedText(t, titleHits, projectMatchIds, personMatchIds, qLower));
-            }
-        }
-        if (types.contains("image")) {
-            Set<Long> titleHits;
-            List<Image> base;
-            if (norm == null) {
-                base = imageRepository.findAllByRemovedAtIsNull();
-                titleHits = Set.of();
-            } else {
-                String like = MediaSearchSqlBuilder.escapeLike(norm);
-                List<Image> titleRows = imageRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT);
-                titleHits = titleRows.stream().map(Image::getId).collect(Collectors.toSet());
-                base = widenImages(titleRows, projectScope);
-            }
-            for (Image i : base) {
-                if (!projectMatches(i.getProject(), wProject, wCategory, wPerson)) continue;
-                if (!wTags.isEmpty() && !anyMatch(i.getTags(), wTags)) continue;
-                if (!wKeywords.isEmpty() && !anyMatch(i.getKeywords(), wKeywords)) continue;
-                if (!withinRange(i.getDateCreated(), dateFrom, dateTo)) continue;
-                out.add(toUnifiedImage(i, titleHits, projectMatchIds, personMatchIds, qLower));
-            }
-        }
-
-        out.sort(unifiedComparator(sortBy, sortDirection));
-
-        // Stamp trending onto unified results before slicing the page.
-        java.util.Map<String, GuestTrendingService.TrendingMark> snap = trendingService.getSnapshot();
-        if (!snap.isEmpty()) {
-            out.forEach(dto -> {
-                GuestTrendingService.TrendingMark m = snap.get(dto.getKind() + ":" + dto.getCode());
-                if (m != null) applyMark(dto, m);
-            });
-        }
-
-        long total = out.size();
-        int from = (int) Math.min(pageable.getOffset(), total);
-        int to = (int) Math.min(from + pageable.getPageSize(), total);
-        return new PageImpl<>(out.subList(from, to), pageable, total);
     }
 
     // ─── Unified FAST feed (DB-side UNION ALL with PG-side pagination) ───────────
@@ -1015,7 +852,7 @@ public class GuestSearchService {
      * @param typesIn        which media kinds to include
      *                       ({@code image|video|audio|text}); null/empty = all
      *                       four. Projects and persons are never returned.
-     *                       Rows are always grouped photos → videos → sounds →
+     *                       Rows are always grouped photos → sounds → videos →
      *                       texts; {@code sortBy} orders within each group.
      * @param projectCode    exact project code
      * @param categoryCode   exact category code
@@ -1244,178 +1081,6 @@ public class GuestSearchService {
         return out.isEmpty() ? ALL_FEED_KINDS : out;
     }
 
-    private static Comparator<GuestUnifiedResultDTO> unifiedComparator(String sortBy, String sortDirection) {
-        String key = sortBy == null ? "relevance" : sortBy.trim().toLowerCase(Locale.ROOT);
-        Comparator<GuestUnifiedResultDTO> cmp;
-        boolean defaultDesc;
-        switch (key) {
-            case "title", "name", "alpha" -> {
-                cmp = Comparator.comparing(GuestUnifiedResultDTO::getTitle,
-                        Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-                defaultDesc = false;
-            }
-            case "date", "datecreated", "created", "added" -> {
-                cmp = Comparator.comparing(GuestUnifiedResultDTO::getDateCreated,
-                        Comparator.nullsLast(Instant::compareTo));
-                defaultDesc = true;
-            }
-            default -> { // "relevance" or unknown
-                cmp = Comparator.comparingDouble(GuestUnifiedResultDTO::getScore)
-                        .thenComparing(GuestUnifiedResultDTO::getDateCreated,
-                                Comparator.nullsLast(Instant::compareTo));
-                defaultDesc = true;
-            }
-        }
-        boolean wantDesc = (sortDirection == null || sortDirection.isBlank())
-                ? defaultDesc
-                : sortDirection.equalsIgnoreCase("desc");
-        return wantDesc ? cmp.reversed() : cmp;
-    }
-
-    private GuestUnifiedResultDTO toUnifiedAudio(Audio a, Set<Long> titleHits,
-                                                 Set<Long> projectHits, Set<Long> personHits,
-                                                 String qLower) {
-        List<String> matched = new ArrayList<>(4);
-        double score = 0;
-        if (titleHits.contains(a.getId())) { score += 3; matched.add("title"); }
-        Project p = a.getProject();
-        if (p != null && projectHits.contains(p.getId())) { score += 2; matched.add("project"); }
-        if (p != null && p.getPerson() != null && personHits.contains(p.getPerson().getId())) {
-            score += 2; matched.add("person");
-        }
-        if (qLower != null) {
-            if (containsExact(a.getTags(), qLower)) { score += 1; matched.add("tag"); }
-            if (containsExact(a.getKeywords(), qLower)) { score += 1; matched.add("keyword"); }
-        }
-        return GuestUnifiedResultDTO.builder()
-                .kind("audio").score(score).matchedOn(matched)
-                .code(a.getAudioCode())
-                .title(firstNonBlank(a.getOriginTitle(), a.getAlterTitle(),
-                        a.getCentral_kurdish_title(), a.getRomanized_title(), a.getAudioCode()))
-                .projectCode(p == null ? null : p.getProjectCode())
-                .projectName(p == null ? null : p.getProjectName())
-                .personCode(p == null || p.getPerson() == null ? null : p.getPerson().getPersonCode())
-                .personName(p == null ? null : displayPersonName(p.getPerson()))
-                .personMediaPortrait(p == null || p.getPerson() == null ? null : p.getPerson().getMediaPortrait())
-                .categories(projectCategories(p))
-                .dateCreated(a.getDate_created())
-                .audio(GuestMapper.toAudio(a))
-                .build();
-    }
-
-    private GuestUnifiedResultDTO toUnifiedVideo(Video v, Set<Long> titleHits,
-                                                 Set<Long> projectHits, Set<Long> personHits,
-                                                 String qLower) {
-        List<String> matched = new ArrayList<>(4);
-        double score = 0;
-        if (titleHits.contains(v.getId())) { score += 3; matched.add("title"); }
-        Project p = v.getProject();
-        if (p != null && projectHits.contains(p.getId())) { score += 2; matched.add("project"); }
-        if (p != null && p.getPerson() != null && personHits.contains(p.getPerson().getId())) {
-            score += 2; matched.add("person");
-        }
-        if (qLower != null) {
-            if (containsExact(v.getTags(), qLower)) { score += 1; matched.add("tag"); }
-            if (containsExact(v.getKeywords(), qLower)) { score += 1; matched.add("keyword"); }
-        }
-        return GuestUnifiedResultDTO.builder()
-                .kind("video").score(score).matchedOn(matched)
-                .code(v.getVideoCode())
-                .title(firstNonBlank(v.getOriginalTitle(), v.getAlternativeTitle(),
-                        v.getTitleInCentralKurdish(), v.getRomanizedTitle(), v.getVideoCode()))
-                .projectCode(p == null ? null : p.getProjectCode())
-                .projectName(p == null ? null : p.getProjectName())
-                .personCode(p == null || p.getPerson() == null ? null : p.getPerson().getPersonCode())
-                .personName(p == null ? null : displayPersonName(p.getPerson()))
-                .personMediaPortrait(p == null || p.getPerson() == null ? null : p.getPerson().getMediaPortrait())
-                .categories(projectCategories(p))
-                .dateCreated(v.getDateCreated())
-                .video(GuestMapper.toVideo(v))
-                .build();
-    }
-
-    private GuestUnifiedResultDTO toUnifiedText(Text t, Set<Long> titleHits,
-                                                Set<Long> projectHits, Set<Long> personHits,
-                                                String qLower) {
-        List<String> matched = new ArrayList<>(4);
-        double score = 0;
-        if (titleHits.contains(t.getId())) { score += 3; matched.add("title"); }
-        Project p = t.getProject();
-        if (p != null && projectHits.contains(p.getId())) { score += 2; matched.add("project"); }
-        if (p != null && p.getPerson() != null && personHits.contains(p.getPerson().getId())) {
-            score += 2; matched.add("person");
-        }
-        if (qLower != null) {
-            if (containsExact(t.getTags(), qLower)) { score += 1; matched.add("tag"); }
-            if (containsExact(t.getKeywords(), qLower)) { score += 1; matched.add("keyword"); }
-        }
-        return GuestUnifiedResultDTO.builder()
-                .kind("text").score(score).matchedOn(matched)
-                .code(t.getTextCode())
-                .title(firstNonBlank(t.getOriginalTitle(), t.getAlternativeTitle(),
-                        t.getTitleInCentralKurdish(), t.getRomanizedTitle(), t.getTextCode()))
-                .projectCode(p == null ? null : p.getProjectCode())
-                .projectName(p == null ? null : p.getProjectName())
-                .personCode(p == null || p.getPerson() == null ? null : p.getPerson().getPersonCode())
-                .personName(p == null ? null : displayPersonName(p.getPerson()))
-                .personMediaPortrait(p == null || p.getPerson() == null ? null : p.getPerson().getMediaPortrait())
-                .categories(projectCategories(p))
-                .dateCreated(t.getDateCreated())
-                .text(GuestMapper.toText(t))
-                .build();
-    }
-
-    private GuestUnifiedResultDTO toUnifiedImage(Image i, Set<Long> titleHits,
-                                                 Set<Long> projectHits, Set<Long> personHits,
-                                                 String qLower) {
-        List<String> matched = new ArrayList<>(4);
-        double score = 0;
-        if (titleHits.contains(i.getId())) { score += 3; matched.add("title"); }
-        Project p = i.getProject();
-        if (p != null && projectHits.contains(p.getId())) { score += 2; matched.add("project"); }
-        if (p != null && p.getPerson() != null && personHits.contains(p.getPerson().getId())) {
-            score += 2; matched.add("person");
-        }
-        if (qLower != null) {
-            if (containsExact(i.getTags(), qLower)) { score += 1; matched.add("tag"); }
-            if (containsExact(i.getKeywords(), qLower)) { score += 1; matched.add("keyword"); }
-        }
-        return GuestUnifiedResultDTO.builder()
-                .kind("image").score(score).matchedOn(matched)
-                .code(i.getImageCode())
-                .title(firstNonBlank(i.getOriginalTitle(), i.getAlternativeTitle(),
-                        i.getTitleInCentralKurdish(), i.getRomanizedTitle(), i.getImageCode()))
-                .projectCode(p == null ? null : p.getProjectCode())
-                .projectName(p == null ? null : p.getProjectName())
-                .personCode(p == null || p.getPerson() == null ? null : p.getPerson().getPersonCode())
-                .personName(p == null ? null : displayPersonName(p.getPerson()))
-                .personMediaPortrait(p == null || p.getPerson() == null ? null : p.getPerson().getMediaPortrait())
-                .categories(projectCategories(p))
-                .dateCreated(i.getDateCreated())
-                .image(GuestMapper.toImage(i))
-                .build();
-    }
-
-    private static List<GuestUnifiedResultDTO.CategoryRef> projectCategories(Project p) {
-        if (p == null || p.getCategories() == null || p.getCategories().isEmpty()) return List.of();
-        List<GuestUnifiedResultDTO.CategoryRef> out = new ArrayList<>(p.getCategories().size());
-        for (Category c : p.getCategories()) {
-            if (c == null) continue;
-            out.add(GuestUnifiedResultDTO.CategoryRef.builder()
-                    .code(c.getCategoryCode()).name(c.getName()).build());
-        }
-        return out;
-    }
-
-    private static boolean containsExact(List<String> field, String needleLower) {
-        if (field == null || field.isEmpty() || needleLower == null) return false;
-        for (String s : field) {
-            if (s == null) continue;
-            if (s.trim().toLowerCase(Locale.ROOT).equals(needleLower)) return true;
-        }
-        return false;
-    }
-
     // ─── Suggest (autocomplete) ───────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -1481,11 +1146,22 @@ public class GuestSearchService {
     @Transactional(readOnly = true)
     public GuestFacetsDTO facets() {
         // Source data — read-once, in-memory grouping is fast for 1k–10k rows.
-        List<Audio> audios = audioRepository.findAllByRemovedAtIsNull();
-        List<Video> videos = videoRepository.findAllByRemovedAtIsNull();
-        List<Text> texts = textRepository.findAllByRemovedAtIsNull();
-        List<Image> images = imageRepository.findAllByRemovedAtIsNull();
-        List<Project> projects = projectRepository.findAllByRemovedAtIsNull();
+        // Counts must match the public feed: visible project + visible media only.
+        List<Audio> audios = audioRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isPubliclyVisible)
+                .toList();
+        List<Video> videos = videoRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isPubliclyVisible)
+                .toList();
+        List<Text> texts = textRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isPubliclyVisible)
+                .toList();
+        List<Image> images = imageRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isPubliclyVisible)
+                .toList();
+        List<Project> projects = projectRepository.findAllByRemovedAtIsNull().stream()
+                .filter(GuestSearchService::isProjectPubliclyVisible)
+                .toList();
 
         Map<String, Long> languages = new HashMap<>();
         Map<String, Long> dialects = new HashMap<>();
@@ -1642,11 +1318,19 @@ public class GuestSearchService {
     private GuestProjectDTO.MediaCounts mediaCounts(Project p) {
         if (p == null) return null;
         return GuestProjectDTO.MediaCounts.builder()
-                .audios(audioRepository.countByProjectAndRemovedAtIsNull(p))
-                .videos(videoRepository.countByProjectAndRemovedAtIsNull(p))
-                .texts(textRepository.countByProjectAndRemovedAtIsNull(p))
-                .images(imageRepository.countByProjectAndRemovedAtIsNull(p))
+                .audios(audioRepository.countPublicByProject(p))
+                .videos(videoRepository.countPublicByProject(p))
+                .texts(textRepository.countPublicByProject(p))
+                .images(imageRepository.countPublicByProject(p))
                 .build();
+    }
+
+    private long publicProjectCount(Category category) {
+        return category == null ? 0L : projectRepository.countPublicByCategory(category);
+    }
+
+    private long publicProjectCount(Person person) {
+        return person == null ? 0L : projectRepository.countPublicByPerson(person);
     }
 
     private static boolean projectMatches(Project project,
@@ -1684,6 +1368,40 @@ public class GuestSearchService {
             return any;
         }
         return true;
+    }
+
+    private static boolean isProjectPubliclyVisible(Project project) {
+        return project != null
+                && project.getRemovedAt() == null
+                && !Boolean.FALSE.equals(project.getIsVisibleToPublic());
+    }
+
+    private static boolean isPubliclyVisible(Audio audio) {
+        return audio != null
+                && audio.getRemovedAt() == null
+                && !Boolean.FALSE.equals(audio.getIsPublic())
+                && isProjectPubliclyVisible(audio.getProject());
+    }
+
+    private static boolean isPubliclyVisible(Video video) {
+        return video != null
+                && video.getRemovedAt() == null
+                && !Boolean.FALSE.equals(video.getIsPublic())
+                && isProjectPubliclyVisible(video.getProject());
+    }
+
+    private static boolean isPubliclyVisible(Text text) {
+        return text != null
+                && text.getRemovedAt() == null
+                && !Boolean.FALSE.equals(text.getIsPublic())
+                && isProjectPubliclyVisible(text.getProject());
+    }
+
+    private static boolean isPubliclyVisible(Image image) {
+        return image != null
+                && image.getRemovedAt() == null
+                && !Boolean.FALSE.equals(image.getIsPublic())
+                && isProjectPubliclyVisible(image.getProject());
     }
 
     // ─── Trending stamp ───────────────────────────────────────────────────────────
@@ -1730,9 +1448,6 @@ public class GuestSearchService {
         dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
     }
     private static void applyMark(GuestCategoryDTO dto, GuestTrendingService.TrendingMark m) {
-        dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
-    }
-    private static void applyMark(GuestUnifiedResultDTO dto, GuestTrendingService.TrendingMark m) {
         dto.setTrending(true); dto.setTrendingRank(m.rank()); dto.setTrendingScore(m.score());
     }
 

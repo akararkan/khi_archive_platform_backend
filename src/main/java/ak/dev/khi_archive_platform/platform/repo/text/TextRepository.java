@@ -72,11 +72,21 @@ public interface TextRepository extends JpaRepository<Text, Long> {
     /** Active texts in a project — guest browse path skips trashed rows. */
     List<Text> findAllByProjectAndRemovedAtIsNull(Project project);
 
-    /** Active texts across a batch of projects — drives the unified guest /results scope expansion. */
+    /** Active texts across a batch of projects — drives guest search scope expansion. */
     List<Text> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
 
     /** Active count for the per-project media-counts badge on guest pages. */
     long countByProjectAndRemovedAtIsNull(Project project);
+
+    /** Public active count for the per-project media-counts badge on guest pages. */
+    @Query("""
+            SELECT COUNT(t)
+              FROM Text t
+             WHERE t.project = :project
+               AND t.removedAt IS NULL
+               AND (t.isPublic IS NULL OR t.isPublic = true)
+            """)
+    long countPublicByProject(@Param("project") Project project);
 
     long countByProjectAndTextVersionAndVersionNumber(Project project, String textVersion, Integer versionNumber);
 

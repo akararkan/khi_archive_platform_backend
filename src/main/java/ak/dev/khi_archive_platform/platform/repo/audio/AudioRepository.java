@@ -73,11 +73,21 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
     /** Active audios in a project — guest browse path skips trashed rows. */
     List<Audio> findAllByProjectAndRemovedAtIsNull(Project project);
 
-    /** Active audios across a batch of projects — drives the unified guest /results scope expansion. */
+    /** Active audios across a batch of projects — drives guest search scope expansion. */
     List<Audio> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
 
     /** Active count for the per-project media-counts badge on guest pages. */
     long countByProjectAndRemovedAtIsNull(Project project);
+
+    /** Public active count for the per-project media-counts badge on guest pages. */
+    @Query("""
+            SELECT COUNT(a)
+              FROM Audio a
+             WHERE a.project = :project
+               AND a.removedAt IS NULL
+               AND (a.isPublic IS NULL OR a.isPublic = true)
+            """)
+    long countPublicByProject(@Param("project") Project project);
 
     long countByProjectAndAudioVersionAndVersionNumber(Project project, String audioVersion, Integer versionNumber);
 

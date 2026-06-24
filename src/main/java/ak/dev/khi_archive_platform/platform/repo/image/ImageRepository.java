@@ -72,11 +72,21 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
     /** Active images in a project — guest browse path skips trashed rows. */
     List<Image> findAllByProjectAndRemovedAtIsNull(Project project);
 
-    /** Active images across a batch of projects — drives the unified guest /results scope expansion. */
+    /** Active images across a batch of projects — drives guest search scope expansion. */
     List<Image> findAllByProjectInAndRemovedAtIsNull(Collection<Project> projects);
 
     /** Active count for the per-project media-counts badge on guest pages. */
     long countByProjectAndRemovedAtIsNull(Project project);
+
+    /** Public active count for the per-project media-counts badge on guest pages. */
+    @Query("""
+            SELECT COUNT(i)
+              FROM Image i
+             WHERE i.project = :project
+               AND i.removedAt IS NULL
+               AND (i.isPublic IS NULL OR i.isPublic = true)
+            """)
+    long countPublicByProject(@Param("project") Project project);
 
     long countByProjectAndImageVersionAndVersionNumber(Project project, String imageVersion, Integer versionNumber);
 

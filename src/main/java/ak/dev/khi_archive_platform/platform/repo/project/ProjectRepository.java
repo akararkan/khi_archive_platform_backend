@@ -42,7 +42,7 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     /** Active projects (not in trash) for the given person — used to cascade-trash on Person delete. */
     List<Project> findAllByPersonAndRemovedAtIsNull(Person person);
 
-    /** Active projects across a batch of persons — drives the unified guest /results scope expansion. */
+    /** Active projects across a batch of persons — drives guest search scope expansion. */
     @EntityGraph(attributePaths = {"categories", "person"})
     List<Project> findAllByPersonInAndRemovedAtIsNull(Collection<Person> persons);
 
@@ -66,9 +66,30 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     /** Counts active projects for the given person — used by guest person detail. */
     long countByPersonAndRemovedAtIsNull(Person person);
 
+    /** Counts public active projects for the given person — used by guest/public pages. */
+    @Query("""
+            SELECT COUNT(p)
+              FROM Project p
+             WHERE p.person = :person
+               AND p.removedAt IS NULL
+               AND (p.isVisibleToPublic IS NULL OR p.isVisibleToPublic = true)
+            """)
+    long countPublicByPerson(@Param("person") Person person);
+
     /** Counts active projects in the given category — used by guest category detail. */
     @Query("SELECT COUNT(DISTINCT p) FROM Project p JOIN p.categories c WHERE c = :category AND p.removedAt IS NULL")
     long countActiveByCategory(@Param("category") Category category);
+
+    /** Counts public active projects in the given category — used by guest/public pages. */
+    @Query("""
+            SELECT COUNT(DISTINCT p)
+              FROM Project p
+              JOIN p.categories c
+             WHERE c = :category
+               AND p.removedAt IS NULL
+               AND (p.isVisibleToPublic IS NULL OR p.isVisibleToPublic = true)
+            """)
+    long countPublicByCategory(@Param("category") Category category);
 
     /**
      * Typo-tolerant search across project name, code, description, tags, and
