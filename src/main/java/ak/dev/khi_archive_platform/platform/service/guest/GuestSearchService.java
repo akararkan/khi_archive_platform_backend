@@ -5,6 +5,7 @@ import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestMediaFeedDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
@@ -39,11 +40,13 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -110,23 +113,23 @@ public class GuestSearchService {
         trendingService.logSearch(norm);
         String like = MediaSearchSqlBuilder.escapeLike(norm);
 
-        List<Project> projectHits = capById(projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, MAX_LIMIT)
-                .stream().filter(GuestSearchService::isProjectPubliclyVisible).toList(), sectionLimit);
+        List<Project> projectHits = projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit)
+                .stream().filter(GuestSearchService::isProjectPubliclyVisible).toList();
         List<Category> categoryHits = categoryRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
         List<Person> personHits = personRepository.searchByText(norm, SIMILARITY_THRESHOLD, sectionLimit);
         List<Project> scope = resolveProjectScope(norm);
         List<Audio> audioHits = capById(widenAudios(
-                audioRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT), scope)
-                .stream().filter(GuestSearchService::isPubliclyVisible).toList(), sectionLimit);
+                audioRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Video> videoHits = capById(widenVideos(
-                videoRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT), scope)
-                .stream().filter(GuestSearchService::isPubliclyVisible).toList(), sectionLimit);
+                videoRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Text> textHits = capById(widenTexts(
-                textRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT), scope)
-                .stream().filter(GuestSearchService::isPubliclyVisible).toList(), sectionLimit);
+                textRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
         List<Image> imageHits = capById(widenImages(
-                imageRepository.searchByText(like, norm, PREFILTER_LIMIT, MAX_LIMIT), scope)
-                .stream().filter(GuestSearchService::isPubliclyVisible).toList(), sectionLimit);
+                imageRepository.searchByText(like, norm, PREFILTER_LIMIT, sectionLimit), scope), sectionLimit)
+                .stream().filter(GuestSearchService::isPubliclyVisible).toList();
 
         return GuestGlobalSearchDTO.builder()
                 .query(norm)
@@ -812,6 +815,179 @@ public class GuestSearchService {
                 });
     }
 
+    // ─── Grouped public media feed ───────────────────────────────────────────────
+
+    /**
+     * Public feed grouped into photos, sounds, videos and texts. Pagination is
+     * applied independently per selected kind so every section can return its
+     * own full DTOs and counts.
+     *
+     * @param q              free-text — matches titles, codes, description,
+     *                       project name, person name, tags, keywords, subjects, genres
+     * @param typesIn        which media kinds to include
+     *                       ({@code image|video|audio|text}); null/empty = all
+     *                       four. Projects and persons are never returned.
+     *                       Rows are always grouped photos → sounds → videos →
+     *                       texts; {@code sortBy} orders within each group.
+     * @param projectCode    exact project code
+     * @param categoryCode   exact category code
+     * @param personCode     exact person code (via the project's owner)
+     * @param language       exact match on entity.language
+     * @param dialect        exact match on entity.dialect
+     * @param region         exact match on entity.region
+     * @param subjects       any-match against entity_subjects collection
+     * @param genres         any-match against entity_genres collection
+     * @param tags           any-match against entity_tags collection
+     * @param keywords       any-match against entity_keywords collection
+     * @param dateFrom       inclusive lower bound on date_created
+     * @param dateTo         inclusive upper bound on date_created
+     * @param sortBy         {@code relevance} (default when q present) |
+     *                       {@code date} (default otherwise) | {@code datePublished} | {@code title}
+     * @param sortDirection  {@code asc} | {@code desc}
+     */
+    @Transactional(readOnly = true)
+    public GuestMediaFeedDTO feedAll(String q,
+                                     List<String> typesIn,
+                                     String projectCode,
+                                     String categoryCode,
+                                     String personCode,
+                                     String language,
+                                     String dialect,
+                                     String region,
+                                     List<String> subjects,
+                                     List<String> genres,
+                                     List<String> tags,
+                                     List<String> keywords,
+                                     Instant dateFrom,
+                                     Instant dateTo,
+                                     String sortBy,
+                                     String sortDirection,
+                                     Pageable pageable) {
+        String norm = normalize(q);
+        if (norm != null) trendingService.logSearch(norm);
+
+        Set<String> types = parseTypes(typesIn);
+        String effectiveSortBy = feedSortBy(norm, sortBy);
+        String effectiveSortDirection = feedSortDirection(effectiveSortBy, sortDirection);
+
+        Page<GuestImageDTO> images = types.contains("image")
+                ? searchImages(q, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                null, null, null, null, null, null, null, null, null,
+                subjects, genres, null, null, tags, keywords,
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
+
+        Page<GuestAudioDTO> audios = types.contains("audio")
+                ? searchAudios(q, projectCode, categoryCode, personCode,
+                language, dialect,
+                null, null, null, null, null,
+                null, null, null, null, null,
+                null, null, null, region,
+                null, null,
+                subjects, genres, tags, keywords,
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
+
+        Page<GuestVideoDTO> videos = types.contains("video")
+                ? searchVideos(q, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                null, null, null, null, null, null, null, null, null, null, null,
+                subjects, genres, null, null, tags, keywords,
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
+
+        Page<GuestTextDTO> texts = types.contains("text")
+                ? searchTexts(q, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                subjects, genres, tags, keywords,
+                dateFrom, dateTo, null, null, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
+
+        return GuestMediaFeedDTO.builder()
+                .order(FEED_KIND_ORDER)
+                .images(toFeedSection("image", images))
+                .audios(toFeedSection("audio", audios))
+                .videos(toFeedSection("video", videos))
+                .texts(toFeedSection("text", texts))
+                .totalElements(images.getTotalElements()
+                        + audios.getTotalElements()
+                        + videos.getTotalElements()
+                        + texts.getTotalElements())
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .hasNext(images.hasNext() || audios.hasNext() || videos.hasNext() || texts.hasNext())
+                .hasPrevious(images.hasPrevious() || audios.hasPrevious()
+                        || videos.hasPrevious() || texts.hasPrevious())
+                .build();
+    }
+
+    /**
+     * The four media kinds the feed can surface — the default when no
+     * {@code types} filter is sent. The feed is media-only: projects and
+     * persons are NOT part of it (they have their own endpoints), so they're
+     * absent here and any {@code types=project|person} request is ignored.
+     */
+    private static final List<String> FEED_KIND_ORDER = List.of("image", "audio", "video", "text");
+    private static final Set<String> ALL_FEED_KINDS = Set.copyOf(FEED_KIND_ORDER);
+
+    private static <T> GuestMediaFeedDTO.Section<T> toFeedSection(String kind, Page<T> page) {
+        return GuestMediaFeedDTO.Section.<T>builder()
+                .kind(kind)
+                .content(page.getContent())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .numberOfElements(page.getNumberOfElements())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .empty(page.isEmpty())
+                .build();
+    }
+
+    private static String feedSortBy(String normalizedQuery, String sortBy) {
+        String wanted = lower(sortBy);
+        if (wanted == null || "relevance".equals(wanted)) {
+            return normalizedQuery == null ? "date" : null;
+        }
+        return sortBy;
+    }
+
+    private static String feedSortDirection(String effectiveSortBy, String sortDirection) {
+        String wanted = lower(sortDirection);
+        if (wanted != null) return wanted;
+        if (effectiveSortBy == null) return null;
+        return switch (effectiveSortBy.toLowerCase(Locale.ROOT)) {
+            case "date", "datecreated", "datepublished", "published",
+                 "createdat", "created", "added" -> "desc";
+            default -> "asc";
+        };
+    }
+
+    private static Set<String> parseTypes(List<String> in) {
+        if (in == null || in.isEmpty()) return ALL_FEED_KINDS;
+        Set<String> out = new LinkedHashSet<>();
+        for (String s : in) {
+            if (s == null) continue;
+            for (String value : s.split(",")) {
+                switch (value.trim().toLowerCase(Locale.ROOT)) {
+                    case "image", "images", "photo", "photos" -> out.add("image");
+                    case "audio", "audios", "sound", "sounds" -> out.add("audio");
+                    case "video", "videos"                    -> out.add("video");
+                    case "text", "texts"                      -> out.add("text");
+                    default -> { /* ignore unknown — incl. project / person */ }
+                }
+            }
+        }
+        return out.isEmpty() ? ALL_FEED_KINDS : out;
+    }
+
     // ─── Suggest (autocomplete) ───────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -824,8 +1000,6 @@ public class GuestSearchService {
 
         // Per-section quick lookups, each capped at the user-asked cap.
         projectRepository.searchByText(norm, SIMILARITY_THRESHOLD, cap)
-                .stream()
-                .filter(GuestSearchService::isProjectPubliclyVisible)
                 .forEach(p -> out.add(GuestSuggestionDTO.builder()
                         .value(p.getProjectName())
                         .kind("project")
@@ -851,29 +1025,21 @@ public class GuestSearchService {
         int perMedia = Math.max(1, remaining / 4);
 
         audioRepository.searchByText(like, norm, PREFILTER_LIMIT, perMedia)
-                .stream()
-                .filter(GuestSearchService::isPubliclyVisible)
                 .forEach(a -> out.add(GuestSuggestionDTO.builder()
                         .value(firstNonBlank(a.getOriginTitle(), a.getAlterTitle(),
                                 a.getCentral_kurdish_title(), a.getRomanized_title(), a.getAudioCode()))
                         .kind("audio").code(a.getAudioCode()).build()));
         videoRepository.searchByText(like, norm, PREFILTER_LIMIT, perMedia)
-                .stream()
-                .filter(GuestSearchService::isPubliclyVisible)
                 .forEach(v -> out.add(GuestSuggestionDTO.builder()
                         .value(firstNonBlank(v.getOriginalTitle(), v.getAlternativeTitle(),
                                 v.getTitleInCentralKurdish(), v.getRomanizedTitle(), v.getVideoCode()))
                         .kind("video").code(v.getVideoCode()).build()));
         textRepository.searchByText(like, norm, PREFILTER_LIMIT, perMedia)
-                .stream()
-                .filter(GuestSearchService::isPubliclyVisible)
                 .forEach(t -> out.add(GuestSuggestionDTO.builder()
                         .value(firstNonBlank(t.getOriginalTitle(), t.getAlternativeTitle(),
                                 t.getTitleInCentralKurdish(), t.getRomanizedTitle(), t.getTextCode()))
                         .kind("text").code(t.getTextCode()).build()));
         imageRepository.searchByText(like, norm, PREFILTER_LIMIT, perMedia)
-                .stream()
-                .filter(GuestSearchService::isPubliclyVisible)
                 .forEach(i -> out.add(GuestSuggestionDTO.builder()
                         .value(firstNonBlank(i.getOriginalTitle(), i.getAlternativeTitle(),
                                 i.getTitleInCentralKurdish(), i.getRomanizedTitle(), i.getImageCode()))
@@ -1114,34 +1280,34 @@ public class GuestSearchService {
     private static boolean isProjectPubliclyVisible(Project project) {
         return project != null
                 && project.getRemovedAt() == null
-                && Boolean.TRUE.equals(project.getIsVisibleToPublic());
+                && !Boolean.FALSE.equals(project.getIsVisibleToPublic());
     }
 
     private static boolean isPubliclyVisible(Audio audio) {
         return audio != null
                 && audio.getRemovedAt() == null
-                && Boolean.TRUE.equals(audio.getIsPublic())
+                && !Boolean.FALSE.equals(audio.getIsPublic())
                 && isProjectPubliclyVisible(audio.getProject());
     }
 
     private static boolean isPubliclyVisible(Video video) {
         return video != null
                 && video.getRemovedAt() == null
-                && Boolean.TRUE.equals(video.getIsPublic())
+                && !Boolean.FALSE.equals(video.getIsPublic())
                 && isProjectPubliclyVisible(video.getProject());
     }
 
     private static boolean isPubliclyVisible(Text text) {
         return text != null
                 && text.getRemovedAt() == null
-                && Boolean.TRUE.equals(text.getIsPublic())
+                && !Boolean.FALSE.equals(text.getIsPublic())
                 && isProjectPubliclyVisible(text.getProject());
     }
 
     private static boolean isPubliclyVisible(Image image) {
         return image != null
                 && image.getRemovedAt() == null
-                && Boolean.TRUE.equals(image.getIsPublic())
+                && !Boolean.FALSE.equals(image.getIsPublic())
                 && isProjectPubliclyVisible(image.getProject());
     }
 

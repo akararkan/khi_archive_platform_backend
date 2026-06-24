@@ -81,10 +81,10 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
     /** Public active count for the per-project media-counts badge on guest pages. */
     @Query("""
             SELECT COUNT(v)
-             FROM Video v
+              FROM Video v
              WHERE v.project = :project
                AND v.removedAt IS NULL
-               AND v.isPublic = true
+               AND (v.isPublic IS NULL OR v.isPublic = true)
             """)
     long countPublicByProject(@Param("project") Project project);
 

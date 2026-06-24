@@ -81,10 +81,10 @@ public interface TextRepository extends JpaRepository<Text, Long> {
     /** Public active count for the per-project media-counts badge on guest pages. */
     @Query("""
             SELECT COUNT(t)
-             FROM Text t
+              FROM Text t
              WHERE t.project = :project
                AND t.removedAt IS NULL
-               AND t.isPublic = true
+               AND (t.isPublic IS NULL OR t.isPublic = true)
             """)
     long countPublicByProject(@Param("project") Project project);
 

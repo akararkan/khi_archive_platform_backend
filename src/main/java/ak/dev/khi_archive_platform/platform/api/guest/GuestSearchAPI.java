@@ -5,6 +5,7 @@ import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestMediaFeedDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
@@ -97,6 +98,80 @@ public class GuestSearchAPI {
     @GetMapping("/facets")
     public ResponseEntity<GuestFacetsDTO> facets() {
         return ResponseEntity.ok(guestSearchService.facets());
+    }
+
+    // ─── Grouped media feed ──────────────────────────────────────────────────────
+
+    /**
+     * Grouped media feed across the four public media kinds — the recommended
+     * browse-and-search endpoint for the public site.
+     *
+     * <p>The response is grouped by media kind in the exact public order:
+     * <em>photos → sounds → videos → texts</em>. Each section contains the
+     * same full DTO shape returned by its own endpoint
+     * ({@code /images}, {@code /audios}, {@code /videos}, {@code /texts}),
+     * so the frontend does not lose media-specific fields.
+     *
+     * <p><strong>The feed is media-only.</strong> It returns
+     * <em>image, audio, video and text</em> sections — projects and persons
+     * are NOT included here (browse those via {@code /projects} and
+     * {@code /persons}). Per-type endpoints stay around for pages that need
+     * media-specific filters (singer, ISBN, frame rate, …).
+     *
+     * <p><strong>Pagination.</strong> The shared {@code page}/{@code size}
+     * request is applied independently to every selected section. For example,
+     * {@code size=12} returns up to 12 images, 12 audios, 12 videos, and
+     * 12 texts. This guarantees every media kind can appear on the public
+     * page instead of one large kind hiding the others.
+     *
+     * <p>Filters supported (all optional):
+     * <ul>
+     *   <li>{@code q} — free text matched against titles, codes,
+     *       description, project name, person name, tags, keywords,
+     *       subjects, genres on every kind.</li>
+     *   <li>{@code types} — which media kinds to include
+     *       ({@code image | video | audio | text}; aliases {@code photo},
+     *       {@code sound} accepted; repeat or omit for all four). Any
+     *       {@code project}/{@code person} value is ignored.</li>
+     *   <li>Common scalars: {@code projectCode}, {@code categoryCode},
+     *       {@code personCode}, {@code language}, {@code dialect},
+     *       {@code region}.</li>
+     *   <li>Multi-value collection filters: {@code subject},
+     *       {@code genre}, {@code tag}, {@code keyword} (repeatable).</li>
+     *   <li>{@code dateFrom} / {@code dateTo} — inclusive ISO date range
+     *       on {@code dateCreated}.</li>
+     *   <li>{@code sortBy}: {@code relevance} (default when q present)
+     *       / {@code date} (default otherwise) / {@code datePublished} /
+     *       {@code title}. {@code sortDirection}: {@code asc | desc}.
+     *       Applied within each media-kind block.</li>
+     * </ul>
+     */
+    @GetMapping("/feed")
+    public ResponseEntity<GuestMediaFeedDTO> feed(
+            @RequestParam(value = "q", required = false) String q,
+            @RequestParam(value = "types", required = false) List<String> types,
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam(value = "categoryCode", required = false) String categoryCode,
+            @RequestParam(value = "personCode", required = false) String personCode,
+            @RequestParam(value = "language", required = false) String language,
+            @RequestParam(value = "dialect", required = false) String dialect,
+            @RequestParam(value = "region", required = false) String region,
+            @RequestParam(value = "subject", required = false) List<String> subjects,
+            @RequestParam(value = "genre", required = false) List<String> genres,
+            @RequestParam(value = "tag", required = false) List<String> tags,
+            @RequestParam(value = "keyword", required = false) List<String> keywords,
+            @RequestParam(value = "dateFrom", required = false) String dateFrom,
+            @RequestParam(value = "dateTo", required = false) String dateTo,
+            @RequestParam(value = "sortBy", required = false) String sortBy,
+            @RequestParam(value = "sortDirection", required = false) String sortDirection,
+            @PageableDefault(size = 50) Pageable pageable
+    ) {
+        return ResponseEntity.ok(guestSearchService.feedAll(
+                q, types, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                subjects, genres, tags, keywords,
+                parseStart(dateFrom), parseEnd(dateTo),
+                sortBy, sortDirection, pageable));
     }
 
     // ─── Projects (collections) ───────────────────────────────────────────────────
