@@ -3,9 +3,9 @@ package ak.dev.khi_archive_platform.platform.api.guest;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestAudioDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
-import ak.dev.khi_archive_platform.platform.dto.guest.GuestFeedItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestMediaFeedDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
@@ -100,29 +100,29 @@ public class GuestSearchAPI {
         return ResponseEntity.ok(guestSearchService.facets());
     }
 
-    // ─── Unified feed (fastest cross-entity endpoint) ────────────────────────────
+    // ─── Grouped media feed ──────────────────────────────────────────────────────
 
     /**
-     * Single paginated feed across the four media kinds — the recommended
+     * Grouped media feed across the four public media kinds — the recommended
      * browse-and-search endpoint for the public site.
      *
-     * <p>One PostgreSQL round-trip via a UNION ALL native query returns the
-     * page; a second returns the total. All filtering, scoring, and
-     * pagination happen on the DB so the JVM only handles ≤ {@code size}
-     * rows per call regardless of corpus size.
+     * <p>The response is grouped by media kind in the exact public order:
+     * <em>photos → sounds → videos → texts</em>. Each section contains the
+     * same full DTO shape returned by its own endpoint
+     * ({@code /images}, {@code /audios}, {@code /videos}, {@code /texts}),
+     * so the frontend does not lose media-specific fields.
      *
      * <p><strong>The feed is media-only.</strong> It returns
-     * <em>image, audio, video and text</em> cards interleaved into one ranked,
-     * paginated stream — projects and persons are NOT included here (browse
-     * those via {@code /projects} and {@code /persons}). Per-type endpoints
-     * ({@code /audios}, {@code /videos}, …) stay around for media-specific
-     * filters (singer, ISBN, frame rate, …).
+     * <em>image, audio, video and text</em> sections — projects and persons
+     * are NOT included here (browse those via {@code /projects} and
+     * {@code /persons}). Per-type endpoints stay around for pages that need
+     * media-specific filters (singer, ISBN, frame rate, …).
      *
-     * <p><strong>Ordering.</strong> The feed is always grouped by media kind
-     * in a fixed order — <em>photos → sounds → videos → texts</em>. The
-     * {@code sortBy}/{@code sortDirection} below only order rows
-     * <em>within</em> each kind block, so a page fills with images first, then
-     * audios, then videos, then texts.
+     * <p><strong>Pagination.</strong> The shared {@code page}/{@code size}
+     * request is applied independently to every selected section. For example,
+     * {@code size=12} returns up to 12 images, 12 audios, 12 videos, and
+     * 12 texts. This guarantees every media kind can appear on the public
+     * page instead of one large kind hiding the others.
      *
      * <p>Filters supported (all optional):
      * <ul>
@@ -147,7 +147,7 @@ public class GuestSearchAPI {
      * </ul>
      */
     @GetMapping("/feed")
-    public ResponseEntity<Page<GuestFeedItemDTO>> feed(
+    public ResponseEntity<GuestMediaFeedDTO> feed(
             @RequestParam(value = "q", required = false) String q,
             @RequestParam(value = "types", required = false) List<String> types,
             @RequestParam(value = "projectCode", required = false) String projectCode,

@@ -25,6 +25,8 @@ With all media types explicitly selected:
 GET /api/guest/feed?page=0&size=50&types=image&types=audio&types=video&types=text
 ```
 
+`types=image,audio,video,text` also works, but repeated params are clearer.
+
 Use these type values:
 
 | UI label | API value |
@@ -64,60 +66,114 @@ sortDirection=asc | desc
 
 When the user changes any filter, reset `page` to `0`.
 
-## Page Response Handling
+## Feed Response Handling
 
-`/feed` returns a Spring `Page`.
+`/feed` returns one grouped object, not a Spring `Page`.
 
 Use:
 
 ```js
-const items = data.content;
+const sections = [
+  data.images, // photos
+  data.audios, // sounds
+  data.videos,
+  data.texts,
+];
+
 const totalItems = data.totalElements;
-const currentPage = data.number;
-const totalPages = data.totalPages;
-const hasNext = !data.last;
-const hasPrevious = !data.first;
+const currentPage = data.page;
+const hasNext = data.hasNext;
+const hasPrevious = data.hasPrevious;
+
+const imageCount = data.images.totalElements;
+const audioCount = data.audios.totalElements;
+const videoCount = data.videos.totalElements;
+const textCount = data.texts.totalElements;
 ```
 
-Do not use `data.content.length` as the total result count. That is only the
-number of cards in the current page.
+Do not use `section.content.length` as the total result count. That is only the
+number of cards currently visible in that section. Use
+`section.totalElements` for the real filtered total.
 
-Each feed item has:
+Response shape:
 
 ```js
 {
-  kind,          // image | audio | video | text
-  id,
-  code,
-  title,
-  projectCode,
-  projectName,
-  personCode,
-  personName,
-  personMediaPortrait,
-  categories,
-  language,
-  dialect,
-  region,
-  dateCreated,
-  datePublished,
-  fileUrl,
-  score,
-  trending,
-  trendingRank,
-  trendingScore
+  order: ["image", "audio", "video", "text"],
+  images: {
+    kind: "image",
+    content: [/* GuestImageDTO */],
+    totalElements,
+    totalPages,
+    numberOfElements,
+    first,
+    last,
+    empty
+  },
+  audios: {
+    kind: "audio",
+    content: [/* GuestAudioDTO */],
+    totalElements,
+    totalPages,
+    numberOfElements,
+    first,
+    last,
+    empty
+  },
+  videos: { kind: "video", content: [/* GuestVideoDTO */] },
+  texts: { kind: "text", content: [/* GuestTextDTO */] },
+  totalElements,
+  page,
+  size,
+  hasNext,
+  hasPrevious
 }
 ```
 
-Route cards by `kind`:
+`size` is applied per section. For example, `size=12` can return up to
+12 photos, 12 sounds, 12 videos, and 12 texts.
+
+If a type is not selected, its section still exists but has empty `content` and
+`totalElements: 0`.
+
+Cards are full media DTOs. Use the section kind to read the right code and file
+field:
 
 ```js
-const detailPath = {
-  image: `/guest/images/${item.code}`,
-  audio: `/guest/audios/${item.code}`,
-  video: `/guest/videos/${item.code}`,
-  text: `/guest/texts/${item.code}`,
-}[item.kind];
+function normalizeFeedCard(kind, item) {
+  const config = {
+    image: {
+      code: item.imageCode,
+      fileUrl: item.imageFileUrl,
+      title: item.originalTitle || item.alternativeTitle || item.titleInCentralKurdish || item.romanizedTitle,
+      path: `/guest/images/${item.imageCode}`,
+    },
+    audio: {
+      code: item.audioCode,
+      fileUrl: item.audioFileUrl,
+      title: item.originTitle || item.alterTitle || item.centralKurdishTitle || item.romanizedTitle,
+      path: `/guest/audios/${item.audioCode}`,
+    },
+    video: {
+      code: item.videoCode,
+      fileUrl: item.videoFileUrl,
+      title: item.originalTitle || item.alternativeTitle || item.titleInCentralKurdish || item.romanizedTitle,
+      path: `/guest/videos/${item.videoCode}`,
+    },
+    text: {
+      code: item.textCode,
+      fileUrl: item.textFileUrl,
+      title: item.originalTitle || item.alternativeTitle || item.titleInCentralKurdish || item.romanizedTitle,
+      path: `/guest/texts/${item.textCode}`,
+    },
+  }[kind];
+
+  return { kind, ...config, item };
+}
+
+const cardsForOneGrid = sections.flatMap((section) =>
+  section.content.map((item) => normalizeFeedCard(section.kind, item))
+);
 ```
 
 ## Building Query Params
@@ -243,7 +299,7 @@ GET /api/guest/persons/{personCode}/projects
 ## Media-Specific Pages
 
 Use `/feed` for the main mixed public page. Use media-specific endpoints only
-when the page needs fields unique to one media type.
+for dedicated media pages, direct detail URLs, or a fresh single-item reload.
 
 ```http
 GET /api/guest/images?page=0&size=50
@@ -259,8 +315,7 @@ GET /api/guest/texts?page=0&size=50
 GET /api/guest/texts/{textCode}
 ```
 
-Use detail endpoints after a card click when the UI needs the full DTO for that
-media item.
+The grouped `/feed` response already contains full media DTOs for its cards.
 
 ## Removed API
 

@@ -2,11 +2,10 @@ package ak.dev.khi_archive_platform.platform.service.guest;
 
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestAudioDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategoryDTO;
-import ak.dev.khi_archive_platform.platform.dto.guest.GuestCategorySummaryDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestFacetsDTO;
-import ak.dev.khi_archive_platform.platform.dto.guest.GuestFeedItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestGlobalSearchDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestImageDTO;
+import ak.dev.khi_archive_platform.platform.dto.guest.GuestMediaFeedDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestPersonDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestProjectDTO;
 import ak.dev.khi_archive_platform.platform.dto.guest.GuestSuggestionDTO;
@@ -28,9 +27,6 @@ import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.text.TextRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -91,9 +87,6 @@ public class GuestSearchService {
     private final TextRepository textRepository;
     private final GuestTrendingService trendingService;
     private final ImageRepository imageRepository;
-
-    @PersistenceContext
-    private EntityManager entityManager;
 
     static final int DEFAULT_LIMIT = 50;
     static final int MAX_LIMIT = 500;
@@ -822,30 +815,12 @@ public class GuestSearchService {
                 });
     }
 
-    // ─── Unified FAST feed (DB-side UNION ALL with PG-side pagination) ───────────
+    // ─── Grouped public media feed ───────────────────────────────────────────────
 
     /**
-     * High-throughput cross-entity feed. One PostgreSQL round-trip returns
-     * the page rows; a second returns the total. Filters, scoring and
-     * pagination all live in the SQL — JVM only hydrates the visible page
-     * (≤ {@link #MAX_LIMIT} rows).
-     *
-     * <h3>Why this is fast</h3>
-     * <ul>
-     *   <li><strong>UNION ALL</strong> across the requested media tables —
-     *       the planner runs each branch with its own index plan, no global
-     *       row scan.</li>
-     *   <li><strong>Predicate-pushed WHERE</strong> — only the filters the
-     *       caller actually set become SQL conditions, so PG sees a tight
-     *       predicate set and reaches for the right index (project_id,
-     *       removed_at, language…).</li>
-     *   <li><strong>EXISTS subqueries</strong> for tag/keyword/genre/subject
-     *       — short-circuits on first row, no aggregation pass.</li>
-     *   <li><strong>LIMIT/OFFSET</strong> on the UNIONed stream — the JVM
-     *       sees only {@code size} rows, never the whole result set.</li>
-     *   <li><strong>Batch category fetch</strong> for the page's distinct
-     *       project IDs — one extra query, not N+1.</li>
-     * </ul>
+     * Public feed grouped into photos, sounds, videos and texts. Pagination is
+     * applied independently per selected kind so every section can return its
+     * own full DTOs and counts.
      *
      * @param q              free-text — matches titles, codes, description,
      *                       project name, person name, tags, keywords, subjects, genres
@@ -871,189 +846,85 @@ public class GuestSearchService {
      * @param sortDirection  {@code asc} | {@code desc}
      */
     @Transactional(readOnly = true)
-    public Page<GuestFeedItemDTO> feedAll(String q,
-                                          List<String> typesIn,
-                                          String projectCode,
-                                          String categoryCode,
-                                          String personCode,
-                                          String language,
-                                          String dialect,
-                                          String region,
-                                          List<String> subjects,
-                                          List<String> genres,
-                                          List<String> tags,
-                                          List<String> keywords,
-                                          Instant dateFrom,
-                                          Instant dateTo,
-                                          String sortBy,
-                                          String sortDirection,
-                                          Pageable pageable) {
+    public GuestMediaFeedDTO feedAll(String q,
+                                     List<String> typesIn,
+                                     String projectCode,
+                                     String categoryCode,
+                                     String personCode,
+                                     String language,
+                                     String dialect,
+                                     String region,
+                                     List<String> subjects,
+                                     List<String> genres,
+                                     List<String> tags,
+                                     List<String> keywords,
+                                     Instant dateFrom,
+                                     Instant dateTo,
+                                     String sortBy,
+                                     String sortDirection,
+                                     Pageable pageable) {
         String norm = normalize(q);
         if (norm != null) trendingService.logSearch(norm);
 
-        GuestFeedSqlBuilder.Filters filters = new GuestFeedSqlBuilder.Filters(
-                norm, parseTypes(typesIn),
-                projectCode, categoryCode, personCode,
+        Set<String> types = parseTypes(typesIn);
+        String effectiveSortBy = feedSortBy(norm, sortBy);
+        String effectiveSortDirection = feedSortDirection(effectiveSortBy, sortDirection);
+
+        Page<GuestImageDTO> images = types.contains("image")
+                ? searchImages(q, projectCode, categoryCode, personCode,
                 language, dialect, region,
+                null, null, null, null, null, null, null, null, null,
+                subjects, genres, null, null, tags, keywords,
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
+
+        Page<GuestAudioDTO> audios = types.contains("audio")
+                ? searchAudios(q, projectCode, categoryCode, personCode,
+                language, dialect,
+                null, null, null, null, null,
+                null, null, null, null, null,
+                null, null, null, region,
+                null, null,
                 subjects, genres, tags, keywords,
-                dateFrom, dateTo, sortBy, sortDirection);
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
 
-        int size = Math.min(Math.max(pageable.getPageSize(), 1), MAX_LIMIT);
-        int offset = (int) Math.min(pageable.getOffset(), Integer.MAX_VALUE);
+        Page<GuestVideoDTO> videos = types.contains("video")
+                ? searchVideos(q, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                null, null, null, null, null, null, null, null, null, null, null,
+                subjects, genres, null, null, tags, keywords,
+                dateFrom, dateTo, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
 
-        GuestFeedSqlBuilder.Built pageBuilt = GuestFeedSqlBuilder.buildPage(filters, size, offset);
-        GuestFeedSqlBuilder.Built countBuilt = GuestFeedSqlBuilder.buildCount(filters);
+        Page<GuestTextDTO> texts = types.contains("text")
+                ? searchTexts(q, projectCode, categoryCode, personCode,
+                language, dialect, region,
+                null, null, null, null, null, null, null, null, null, null, null, null,
+                subjects, genres, tags, keywords,
+                dateFrom, dateTo, null, null, null, null,
+                effectiveSortBy, effectiveSortDirection, pageable)
+                : Page.empty(pageable);
 
-        Query pageQ = entityManager.createNativeQuery(pageBuilt.sql());
-        pageBuilt.params().forEach(pageQ::setParameter);
-        Query countQ = entityManager.createNativeQuery(countBuilt.sql());
-        countBuilt.params().forEach(countQ::setParameter);
-
-        @SuppressWarnings("unchecked")
-        List<Object[]> rows = pageQ.getResultList();
-        long total = ((Number) countQ.getSingleResult()).longValue();
-
-        // Batch-fetch the page's distinct project IDs in two cheap round-trips:
-        // one for projects+persons (header info) and one for categories.
-        Set<Long> projectIds = new LinkedHashSet<>(rows.size());
-        for (Object[] r : rows) {
-            Object pid = r[4];
-            if (pid != null) projectIds.add(((Number) pid).longValue());
-        }
-        Map<Long, ProjectInfo> projectInfo = fetchProjectInfo(projectIds);
-        Map<Long, List<GuestCategorySummaryDTO>> catsByProject = fetchCategoriesForProjects(projectIds);
-
-        // Hydrate slim cards.
-        List<GuestFeedItemDTO> items = new ArrayList<>(rows.size());
-        Map<String, GuestTrendingService.TrendingMark> snap = trendingService.getSnapshot();
-        for (Object[] r : rows) {
-            GuestFeedItemDTO dto = rowToFeedItem(r, projectInfo, catsByProject);
-            GuestTrendingService.TrendingMark m = snap.get(dto.getKind() + ":" + dto.getCode());
-            if (m != null) {
-                dto.setTrending(true);
-                dto.setTrendingRank(m.rank());
-                dto.setTrendingScore(m.score());
-            }
-            items.add(dto);
-        }
-        return new PageImpl<>(items, pageable, total);
-    }
-
-    /**
-     * Hydrates one feed row (positional native-query result) into a card DTO.
-     * Column order must match {@link GuestFeedSqlBuilder} branch SELECT.
-     */
-    private static GuestFeedItemDTO rowToFeedItem(Object[] r,
-                                                  Map<Long, ProjectInfo> projectInfo,
-                                                  Map<Long, List<GuestCategorySummaryDTO>> catsByProject) {
-        // Column layout: kind, id, code, title, project_id,
-        //                language, dialect, region,
-        //                date_created, date_published, file_url, score, kind_rank
-        // (kind_rank, the trailing column, is read by the SQL ORDER BY only —
-        //  it never needs hydrating here.)
-        String kind = (String) r[0];
-        Long projectId = (r[4] == null) ? null : ((Number) r[4]).longValue();
-        ProjectInfo pi = (projectId == null) ? null : projectInfo.get(projectId);
-        String code = (String) r[2];
-        String title = (String) r[3];
-        String fileUrl = (String) r[10];
-
-        GuestFeedItemDTO dto = GuestFeedItemDTO.builder()
-                .kind(kind)
-                .id(r[1] == null ? null : ((Number) r[1]).longValue())
-                .code(code)
-                .title(title)
-                .projectCode(pi == null ? null : pi.code)
-                .projectName(pi == null ? null : pi.name)
-                .personCode(pi == null ? null : pi.personCode)
-                .personName(pi == null ? null : pi.personName)
-                .personMediaPortrait(pi == null ? null : pi.personPortrait)
-                .categories(projectId == null ? List.of()
-                        : catsByProject.getOrDefault(projectId, List.of()))
-                .language((String) r[5])
-                .dialect((String) r[6])
-                .region((String) r[7])
-                .dateCreated(asInstant(r[8]))
-                .datePublished(asInstant(r[9]))
-                .fileUrl(fileUrl)
-                .score(r[11] == null ? 0.0 : ((Number) r[11]).doubleValue())
+        return GuestMediaFeedDTO.builder()
+                .order(FEED_KIND_ORDER)
+                .images(toFeedSection("image", images))
+                .audios(toFeedSection("audio", audios))
+                .videos(toFeedSection("video", videos))
+                .texts(toFeedSection("text", texts))
+                .totalElements(images.getTotalElements()
+                        + audios.getTotalElements()
+                        + videos.getTotalElements()
+                        + texts.getTotalElements())
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .hasNext(images.hasNext() || audios.hasNext() || videos.hasNext() || texts.hasNext())
+                .hasPrevious(images.hasPrevious() || audios.hasPrevious()
+                        || videos.hasPrevious() || texts.hasPrevious())
                 .build();
-        return dto;
-    }
-
-    private record ProjectInfo(String code, String name, String personCode,
-                               String personName, String personPortrait) {}
-
-    /** One round-trip fetch of project + owning-person columns for the page's projects. */
-    @SuppressWarnings("unchecked")
-    private Map<Long, ProjectInfo> fetchProjectInfo(Set<Long> projectIds) {
-        if (projectIds.isEmpty()) return Map.of();
-        Query q = entityManager.createNativeQuery(
-                "SELECT p.id, p.project_code, p.project_name, "
-              + "       per.person_code, per.full_name, per.nickname, per.romanized_name, per.media_portrait "
-              + "  FROM projects p "
-              + "  LEFT JOIN person per ON per.id = p.person_id "
-              + " WHERE p.id IN (:ids)");
-        q.setParameter("ids", projectIds);
-        List<Object[]> rows = q.getResultList();
-        Map<Long, ProjectInfo> out = new HashMap<>(rows.size() * 2);
-        for (Object[] r : rows) {
-            Long pid = ((Number) r[0]).longValue();
-            String fullName = (String) r[4];
-            String nickname = (String) r[5];
-            String roman = (String) r[6];
-            String displayName = firstNonBlankStr(fullName, nickname, roman);
-            out.put(pid, new ProjectInfo(
-                    (String) r[1],   // project_code
-                    (String) r[2],   // project_name
-                    (String) r[3],   // person_code
-                    displayName,
-                    (String) r[7])); // media_portrait
-        }
-        return out;
-    }
-
-    private static String firstNonBlankStr(String... in) {
-        if (in == null) return null;
-        for (String s : in) if (s != null && !s.isBlank()) return s;
-        return null;
-    }
-
-    /**
-     * Returns the categories of every requested project in one round-trip.
-     * Uses a native join so we don't touch lazy collections per project.
-     */
-    @SuppressWarnings("unchecked")
-    private Map<Long, List<GuestCategorySummaryDTO>> fetchCategoriesForProjects(Set<Long> projectIds) {
-        if (projectIds.isEmpty()) return Map.of();
-        Query q = entityManager.createNativeQuery(
-                "SELECT pc.project_id, c.id, c.category_code, c.name "
-              + "  FROM project_categories pc "
-              + "  JOIN categories c ON c.id = pc.category_id "
-              + " WHERE pc.project_id IN (:ids) "
-              + "   AND c.removed_at IS NULL "
-              + " ORDER BY pc.project_id, c.name");
-        q.setParameter("ids", projectIds);
-        List<Object[]> rows = q.getResultList();
-        Map<Long, List<GuestCategorySummaryDTO>> out = new HashMap<>();
-        for (Object[] r : rows) {
-            Long pid = ((Number) r[0]).longValue();
-            out.computeIfAbsent(pid, k -> new ArrayList<>()).add(
-                    GuestCategorySummaryDTO.builder()
-                            .id(r[1] == null ? null : ((Number) r[1]).longValue())
-                            .categoryCode((String) r[2])
-                            .name((String) r[3])
-                            .build());
-        }
-        return out;
-    }
-
-    private static Instant asInstant(Object raw) {
-        if (raw == null) return null;
-        if (raw instanceof Instant i) return i;
-        if (raw instanceof java.sql.Timestamp ts) return ts.toInstant();
-        if (raw instanceof java.time.OffsetDateTime odt) return odt.toInstant();
-        return null;
     }
 
     /**
@@ -1062,20 +933,56 @@ public class GuestSearchService {
      * persons are NOT part of it (they have their own endpoints), so they're
      * absent here and any {@code types=project|person} request is ignored.
      */
-    private static final Set<String> ALL_FEED_KINDS =
-            Set.of("image", "video", "audio", "text");
+    private static final List<String> FEED_KIND_ORDER = List.of("image", "audio", "video", "text");
+    private static final Set<String> ALL_FEED_KINDS = Set.copyOf(FEED_KIND_ORDER);
+
+    private static <T> GuestMediaFeedDTO.Section<T> toFeedSection(String kind, Page<T> page) {
+        return GuestMediaFeedDTO.Section.<T>builder()
+                .kind(kind)
+                .content(page.getContent())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .numberOfElements(page.getNumberOfElements())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .empty(page.isEmpty())
+                .build();
+    }
+
+    private static String feedSortBy(String normalizedQuery, String sortBy) {
+        String wanted = lower(sortBy);
+        if (wanted == null || "relevance".equals(wanted)) {
+            return normalizedQuery == null ? "date" : null;
+        }
+        return sortBy;
+    }
+
+    private static String feedSortDirection(String effectiveSortBy, String sortDirection) {
+        String wanted = lower(sortDirection);
+        if (wanted != null) return wanted;
+        if (effectiveSortBy == null) return null;
+        return switch (effectiveSortBy.toLowerCase(Locale.ROOT)) {
+            case "date", "datecreated", "datepublished", "published",
+                 "createdat", "created", "added" -> "desc";
+            default -> "asc";
+        };
+    }
 
     private static Set<String> parseTypes(List<String> in) {
         if (in == null || in.isEmpty()) return ALL_FEED_KINDS;
         Set<String> out = new LinkedHashSet<>();
         for (String s : in) {
             if (s == null) continue;
-            switch (s.trim().toLowerCase(Locale.ROOT)) {
-                case "image", "images", "photo", "photos"  -> out.add("image");
-                case "video", "videos"                     -> out.add("video");
-                case "audio", "audios", "sound", "sounds"  -> out.add("audio");
-                case "text", "texts"                       -> out.add("text");
-                default -> { /* ignore unknown — incl. project / person */ }
+            for (String value : s.split(",")) {
+                switch (value.trim().toLowerCase(Locale.ROOT)) {
+                    case "image", "images", "photo", "photos" -> out.add("image");
+                    case "audio", "audios", "sound", "sounds" -> out.add("audio");
+                    case "video", "videos"                    -> out.add("video");
+                    case "text", "texts"                      -> out.add("text");
+                    default -> { /* ignore unknown — incl. project / person */ }
+                }
             }
         }
         return out.isEmpty() ? ALL_FEED_KINDS : out;
@@ -1582,9 +1489,9 @@ public class GuestSearchService {
                     Comparator.comparing(Audio::getOriginTitle, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
             case "code", "audiocode" ->
                     Comparator.comparing(Audio::getAudioCode, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-            case "datecreated" ->
+            case "date", "datecreated" ->
                     Comparator.comparing(Audio::getDate_created, Comparator.nullsLast(Instant::compareTo));
-            case "datepublished" ->
+            case "published", "datepublished" ->
                     Comparator.comparing(Audio::getDate_published, Comparator.nullsLast(Instant::compareTo));
             case "createdat", "created", "added" ->
                     Comparator.comparing(Audio::getCreatedAt, Comparator.nullsLast(Instant::compareTo));
@@ -1599,9 +1506,9 @@ public class GuestSearchService {
                     Comparator.comparing(Video::getOriginalTitle, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
             case "code", "videocode" ->
                     Comparator.comparing(Video::getVideoCode, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-            case "datecreated" ->
+            case "date", "datecreated" ->
                     Comparator.comparing(Video::getDateCreated, Comparator.nullsLast(Instant::compareTo));
-            case "datepublished" ->
+            case "published", "datepublished" ->
                     Comparator.comparing(Video::getDatePublished, Comparator.nullsLast(Instant::compareTo));
             case "createdat", "created", "added" ->
                     Comparator.comparing(Video::getCreatedAt, Comparator.nullsLast(Instant::compareTo));
@@ -1616,9 +1523,9 @@ public class GuestSearchService {
                     Comparator.comparing(Text::getOriginalTitle, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
             case "code", "textcode" ->
                     Comparator.comparing(Text::getTextCode, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-            case "datecreated" ->
+            case "date", "datecreated" ->
                     Comparator.comparing(Text::getDateCreated, Comparator.nullsLast(Instant::compareTo));
-            case "datepublished" ->
+            case "published", "datepublished" ->
                     Comparator.comparing(Text::getDatePublished, Comparator.nullsLast(Instant::compareTo));
             case "createdat", "created", "added" ->
                     Comparator.comparing(Text::getCreatedAt, Comparator.nullsLast(Instant::compareTo));
@@ -1633,9 +1540,9 @@ public class GuestSearchService {
                     Comparator.comparing(Image::getOriginalTitle, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
             case "code", "imagecode" ->
                     Comparator.comparing(Image::getImageCode, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
-            case "datecreated" ->
+            case "date", "datecreated" ->
                     Comparator.comparing(Image::getDateCreated, Comparator.nullsLast(Instant::compareTo));
-            case "datepublished" ->
+            case "published", "datepublished" ->
                     Comparator.comparing(Image::getDatePublished, Comparator.nullsLast(Instant::compareTo));
             case "createdat", "created", "added" ->
                     Comparator.comparing(Image::getCreatedAt, Comparator.nullsLast(Instant::compareTo));
