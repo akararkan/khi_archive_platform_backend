@@ -1,47 +1,78 @@
 # Guest Frontend API Guide
 
-This guide is for the public guest pages only. Guest users should see public media
-from public projects, ordered as:
+This guide is for the public guest pages only.
+
+The guest public media page must not use `/api/guest/feed`. Use the existing
+get-all media APIs and render them in this fixed order:
 
 `photos -> sounds -> videos -> texts`
 
-## Main Public Feed
+## Main Public Media Page
 
-Use this endpoint for the guest browse/search page:
-
-```http
-GET /api/guest/feed
-```
-
-Default request:
+Call these APIs, in parallel if possible:
 
 ```http
-GET /api/guest/feed?page=0&size=50
+GET /api/guest/images?page=0&size=12
+GET /api/guest/audios?page=0&size=12
+GET /api/guest/videos?page=0&size=12
+GET /api/guest/texts?page=0&size=12
 ```
 
-With all media types explicitly selected:
+Each endpoint returns a Spring `Page`:
 
-```http
-GET /api/guest/feed?page=0&size=50&types=image&types=audio&types=video&types=text
+```js
+{
+  content: [],
+  number,
+  size,
+  totalElements,
+  totalPages,
+  numberOfElements,
+  first,
+  last,
+  empty
+}
 ```
 
-`types=image,audio,video,text` also works, but repeated params are clearer.
+Use `page.totalElements` for the real count. Do not use
+`page.content.length` as the total; that is only the number loaded on the
+current page.
 
-Use these type values:
+The backend now returns only visible guest media:
 
-| UI label | API value |
+```text
+media.isPublic === true
+project.isVisibleToPublic === true
+removedAt === null
+```
+
+## Type Selection
+
+The frontend controls type selection by deciding which endpoints to call.
+
+| UI label | API |
 | --- | --- |
-| Photos | `image` |
-| Sounds | `audio` |
-| Videos | `video` |
-| Texts | `text` |
+| Photos | `/api/guest/images` |
+| Sounds | `/api/guest/audios` |
+| Videos | `/api/guest/videos` |
+| Texts | `/api/guest/texts` |
 
-Supported filters:
+If the user selects only photos and sounds, call only:
+
+```http
+GET /api/guest/images
+GET /api/guest/audios
+```
+
+Keep the render order the same: photos, sounds, videos, texts.
+
+## Common Filters
+
+Send the same common filters to every selected media endpoint:
 
 | UI filter | Query param |
 | --- | --- |
 | Search text | `q` |
-| Media type | `types` repeated |
 | Project | `projectCode` |
 | Category | `categoryCode` |
 | Person | `personCode` |
@@ -66,82 +97,81 @@ sortDirection=asc | desc
 
 When the user changes any filter, reset `page` to `0`.
 
-## Feed Response Handling
+## Frontend Request Helper
 
-`/feed` returns one grouped object, not a Spring `Page`.
-
-Use:
+Use repeated params for arrays:
 
 ```js
-const sections = [
-  data.images, // photos
-  data.audios, // sounds
-  data.videos,
-  data.texts,
-];
+const MEDIA_ENDPOINTS = {
+  image: "/api/guest/images",
+  audio: "/api/guest/audios",
+  video: "/api/guest/videos",
+  text: "/api/guest/texts",
+};
 
-const totalItems = data.totalElements;
-const currentPage = data.page;
-const hasNext = data.hasNext;
-const hasPrevious = data.hasPrevious;
+const MEDIA_ORDER = ["image", "audio", "video", "text"];
 
-const imageCount = data.images.totalElements;
-const audioCount = data.audios.totalElements;
-const videoCount = data.videos.totalElements;
-const textCount = data.texts.totalElements;
-```
+function buildMediaUrl(kind, filters) {
+  const params = new URLSearchParams();
 
-Do not use `section.content.length` as the total result count. That is only the
-number of cards currently visible in that section. Use
-`section.totalElements` for the real filtered total.
+  params.set("page", String(filters.page ?? 0));
+  params.set("size", String(filters.size ?? 12));
 
-Response shape:
+  if (filters.q) params.set("q", filters.q);
+  if (filters.projectCode) params.set("projectCode", filters.projectCode);
+  if (filters.categoryCode) params.set("categoryCode", filters.categoryCode);
+  if (filters.personCode) params.set("personCode", filters.personCode);
+  if (filters.language) params.set("language", filters.language);
+  if (filters.dialect) params.set("dialect", filters.dialect);
+  if (filters.region) params.set("region", filters.region);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.sortBy) params.set("sortBy", filters.sortBy);
+  if (filters.sortDirection) params.set("sortDirection", filters.sortDirection);
 
-```js
-{
-  order: ["image", "audio", "video", "text"],
-  images: {
-    kind: "image",
-    content: [/* GuestImageDTO */],
-    totalElements,
-    totalPages,
-    numberOfElements,
-    first,
-    last,
-    empty
-  },
-  audios: {
-    kind: "audio",
-    content: [/* GuestAudioDTO */],
-    totalElements,
-    totalPages,
-    numberOfElements,
-    first,
-    last,
-    empty
-  },
-  videos: { kind: "video", content: [/* GuestVideoDTO */] },
-  texts: { kind: "text", content: [/* GuestTextDTO */] },
-  totalElements,
-  page,
-  size,
-  hasNext,
-  hasPrevious
+  for (const value of filters.subjects ?? []) params.append("subject", value);
+  for (const value of filters.genres ?? []) params.append("genre", value);
+  for (const value of filters.tags ?? []) params.append("tag", value);
+  for (const value of filters.keywords ?? []) params.append("keyword", value);
+
+  return `${MEDIA_ENDPOINTS[kind]}?${params.toString()}`;
+}
+
+async function loadGuestPublicMedia(filters) {
+  const selectedKinds = filters.types?.length ? filters.types : MEDIA_ORDER;
+  const selected = new Set(selectedKinds);
+
+  const entries = await Promise.all(
+    MEDIA_ORDER.map(async (kind) => {
+      if (!selected.has(kind)) return [kind, null];
+      const response = await fetch(buildMediaUrl(kind, filters));
+      return [kind, await response.json()];
+    })
+  );
+
+  return entries.map(([kind, page]) => ({
+    kind,
+    page: page ?? {
+      content: [],
+      totalElements: 0,
+      totalPages: 0,
+      number: filters.page ?? 0,
+      size: filters.size ?? 12,
+      first: true,
+      last: true,
+      empty: true,
+    },
+  }));
 }
 ```
 
-`size` is applied per section. For example, `size=12` can return up to
-12 photos, 12 sounds, 12 videos, and 12 texts.
+## Rendering Cards
 
-If a type is not selected, its section still exists but has empty `content` and
-`totalElements: 0`.
-
-Cards are full media DTOs. Use the section kind to read the right code and file
-field:
+Normalize cards by section kind:
 
 ```js
-function normalizeFeedCard(kind, item) {
-  const config = {
+function normalizeMediaCard(kind, item) {
+  const byKind = {
     image: {
       code: item.imageCode,
       fileUrl: item.imageFileUrl,
@@ -168,45 +198,28 @@ function normalizeFeedCard(kind, item) {
     },
   }[kind];
 
-  return { kind, ...config, item };
+  return { kind, ...byKind, item };
 }
 
+const sections = await loadGuestPublicMedia(filters);
+
 const cardsForOneGrid = sections.flatMap((section) =>
-  section.content.map((item) => normalizeFeedCard(section.kind, item))
+  section.page.content.map((item) => normalizeMediaCard(section.kind, item))
+);
+
+const totalVisibleResults = sections.reduce(
+  (sum, section) => sum + section.page.totalElements,
+  0
 );
 ```
 
-## Building Query Params
-
-Use repeated params for arrays:
+For section counts:
 
 ```js
-function buildGuestFeedUrl(filters) {
-  const params = new URLSearchParams();
-
-  params.set("page", String(filters.page ?? 0));
-  params.set("size", String(filters.size ?? 50));
-
-  if (filters.q) params.set("q", filters.q);
-  if (filters.projectCode) params.set("projectCode", filters.projectCode);
-  if (filters.categoryCode) params.set("categoryCode", filters.categoryCode);
-  if (filters.personCode) params.set("personCode", filters.personCode);
-  if (filters.language) params.set("language", filters.language);
-  if (filters.dialect) params.set("dialect", filters.dialect);
-  if (filters.region) params.set("region", filters.region);
-  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
-  if (filters.dateTo) params.set("dateTo", filters.dateTo);
-  if (filters.sortBy) params.set("sortBy", filters.sortBy);
-  if (filters.sortDirection) params.set("sortDirection", filters.sortDirection);
-
-  for (const type of filters.types ?? []) params.append("types", type);
-  for (const value of filters.subjects ?? []) params.append("subject", value);
-  for (const value of filters.genres ?? []) params.append("genre", value);
-  for (const value of filters.tags ?? []) params.append("tag", value);
-  for (const value of filters.keywords ?? []) params.append("keyword", value);
-
-  return `/api/guest/feed?${params.toString()}`;
-}
+const photoCount = sections.find((s) => s.kind === "image").page.totalElements;
+const soundCount = sections.find((s) => s.kind === "audio").page.totalElements;
+const videoCount = sections.find((s) => s.kind === "video").page.totalElements;
+const textCount = sections.find((s) => s.kind === "text").page.totalElements;
 ```
 
 ## Sidebar Filter Counts
@@ -258,8 +271,8 @@ Good frontend uses:
 | `trendingByType.text` | trending texts |
 | `topSearches` | popular search chips |
 
-Cards from `/feed` already include `trending`, `trendingRank`, and
-`trendingScore`, so you do not need to call `/trending` for every card.
+The media pages already include `trending`, `trendingRank`, and
+`trendingScore` on each card.
 
 ## Search Box
 
@@ -276,7 +289,8 @@ and media sections:
 GET /api/guest/search?q=zirak&perSection=10
 ```
 
-For the main browsable media grid, use `/api/guest/feed?q=...`, not `/search`.
+For the main browsable media grid, call the four media get-all APIs, not
+`/search`.
 
 ## Projects, Categories, Persons
 
@@ -296,10 +310,9 @@ GET /api/guest/persons/{personCode}
 GET /api/guest/persons/{personCode}/projects
 ```
 
-## Media-Specific Pages
+## Dedicated Media Pages
 
-Use `/feed` for the main mixed public page. Use media-specific endpoints only
-for dedicated media pages, direct detail URLs, or a fresh single-item reload.
+Use these same endpoints for dedicated media pages and direct detail URLs:
 
 ```http
 GET /api/guest/images?page=0&size=50
@@ -315,15 +328,14 @@ GET /api/guest/texts?page=0&size=50
 GET /api/guest/texts/{textCode}
 ```
 
-The grouped `/feed` response already contains full media DTOs for its cards.
+## Removed APIs
 
-## Removed API
-
-Do not use this endpoint:
+Do not use these endpoints:
 
 ```http
+GET /api/guest/feed
 GET /api/guest/results
 ```
 
-It was removed because it duplicated `/api/guest/feed`. The frontend should use
-`/api/guest/feed` for all mixed media guest browsing and filtering.
+The frontend should use the four get-all media endpoints for guest browsing and
+filtering.

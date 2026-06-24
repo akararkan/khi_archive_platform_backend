@@ -81,10 +81,10 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
     /** Public active count for the per-project media-counts badge on guest pages. */
     @Query("""
             SELECT COUNT(i)
-              FROM Image i
+             FROM Image i
              WHERE i.project = :project
                AND i.removedAt IS NULL
-               AND (i.isPublic IS NULL OR i.isPublic = true)
+               AND i.isPublic = true
             """)
     long countPublicByProject(@Param("project") Project project);
 

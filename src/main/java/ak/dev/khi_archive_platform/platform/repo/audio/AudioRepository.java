@@ -82,10 +82,10 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
     /** Public active count for the per-project media-counts badge on guest pages. */
     @Query("""
             SELECT COUNT(a)
-              FROM Audio a
+             FROM Audio a
              WHERE a.project = :project
                AND a.removedAt IS NULL
-               AND (a.isPublic IS NULL OR a.isPublic = true)
+               AND a.isPublic = true
             """)
     long countPublicByProject(@Param("project") Project project);
 

@@ -69,10 +69,10 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     /** Counts public active projects for the given person — used by guest/public pages. */
     @Query("""
             SELECT COUNT(p)
-              FROM Project p
+               FROM Project p
              WHERE p.person = :person
                AND p.removedAt IS NULL
-               AND (p.isVisibleToPublic IS NULL OR p.isVisibleToPublic = true)
+               AND p.isVisibleToPublic = true
             """)
     long countPublicByPerson(@Param("person") Person person);
 
@@ -84,10 +84,10 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     @Query("""
             SELECT COUNT(DISTINCT p)
               FROM Project p
-              JOIN p.categories c
+             JOIN p.categories c
              WHERE c = :category
                AND p.removedAt IS NULL
-               AND (p.isVisibleToPublic IS NULL OR p.isVisibleToPublic = true)
+               AND p.isVisibleToPublic = true
             """)
     long countPublicByCategory(@Param("category") Category category);
 
