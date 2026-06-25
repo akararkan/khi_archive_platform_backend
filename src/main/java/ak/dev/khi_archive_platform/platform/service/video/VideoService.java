@@ -620,7 +620,7 @@ public class VideoService {
                 .publisher(video.getPublisher())
                 // Visibility
                 .isPublic(video.getIsPublic())
-                .projectVisibleToPublic(project != null ? project.getIsVisibleToPublic() : null)
+                .projectVisibleToPublic(project != null ? (project.getIsVisibleToPublic() != null ? project.getIsVisibleToPublic() : Boolean.TRUE) : null)
                 // Audit
                 .createdAt(video.getCreatedAt())
                 .updatedAt(video.getUpdatedAt())

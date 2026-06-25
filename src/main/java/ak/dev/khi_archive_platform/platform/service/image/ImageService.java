@@ -623,7 +623,7 @@ public class ImageService {
                 .publisher(image.getPublisher())
                 // Visibility
                 .isPublic(image.getIsPublic())
-                .projectVisibleToPublic(project != null ? project.getIsVisibleToPublic() : null)
+                .projectVisibleToPublic(project != null ? (project.getIsVisibleToPublic() != null ? project.getIsVisibleToPublic() : Boolean.TRUE) : null)
                 // Audit
                 .createdAt(image.getCreatedAt())
                 .updatedAt(image.getUpdatedAt())
