@@ -75,6 +75,7 @@ public class ProjectReadCache {
                 .description(p.getDescription())
                 .tags(p.getTags() != null ? new ArrayList<>(p.getTags()) : null)
                 .keywords(p.getKeywords() != null ? new ArrayList<>(p.getKeywords()) : null)
+                .isVisibleToPublic(p.getIsVisibleToPublic())
                 .createdAt(p.getCreatedAt())
                 .updatedAt(p.getUpdatedAt())
                 .removedAt(p.getRemovedAt())
