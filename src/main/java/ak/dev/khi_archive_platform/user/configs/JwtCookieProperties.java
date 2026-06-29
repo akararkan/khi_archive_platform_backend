@@ -7,12 +7,20 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "jwt")
 public class JwtCookieProperties {
 
+    private long expirationMs = 259_200_000L;
     private String cookieName = "khi_auth_token";
     private boolean cookieSecure;
     private boolean cookieHttpOnly = true;
     private String cookieSameSite = "Strict";
     private String cookiePath = "/";
-    private long cookieMaxAge = 86400;
+
+    public long getExpirationMs() {
+        return expirationMs;
+    }
+
+    public void setExpirationMs(long expirationMs) {
+        this.expirationMs = expirationMs;
+    }
 
     public String getCookieName() {
         return cookieName;
@@ -53,13 +61,4 @@ public class JwtCookieProperties {
     public void setCookiePath(String cookiePath) {
         this.cookiePath = cookiePath;
     }
-
-    public long getCookieMaxAge() {
-        return cookieMaxAge;
-    }
-
-    public void setCookieMaxAge(long cookieMaxAge) {
-        this.cookieMaxAge = cookieMaxAge;
-    }
 }
-

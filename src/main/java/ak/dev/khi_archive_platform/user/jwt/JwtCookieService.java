@@ -16,7 +16,7 @@ public class JwtCookieService {
     private final JwtCookieProperties properties;
 
     public void addAuthCookie(HttpServletResponse response, String token) {
-        response.addHeader(HttpHeaders.SET_COOKIE, buildCookie(token, properties.getCookieMaxAge()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, buildCookie(token, tokenLifetimeSeconds()).toString());
     }
 
     public void clearAuthCookie(HttpServletResponse response) {
@@ -52,5 +52,17 @@ public class JwtCookieService {
 
         return builder.build();
     }
-}
 
+    /**
+     * Keep the browser cookie and JWT on one clock. A separate cookie lifetime
+     * previously defaulted to one day while the JWT lived for three days,
+     * causing browsers to silently stop sending an otherwise valid token.
+     */
+    private long tokenLifetimeSeconds() {
+        long expirationMs = properties.getExpirationMs();
+        if (expirationMs <= 0) {
+            throw new IllegalStateException("jwt.expiration-ms must be greater than zero");
+        }
+        return Math.max(1L, Math.ceilDiv(expirationMs, 1_000L));
+    }
+}

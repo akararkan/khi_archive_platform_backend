@@ -16,7 +16,9 @@ spring:
     open-in-view: false
     show-sql: true
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO}
+      # Authentication revocation is backed by the sessions table. A
+      # create/create-drop schema mode deletes every active login on restart.
+      ddl-auto: update
       properties:
         hibernate:
           format_sql: true
@@ -76,14 +78,15 @@ spring:
 # JWT (ENV SECRET ONLY)
 # ===============================
 jwt:
+  # Keep this value unchanged between deployments. Rotating it immediately
+  # invalidates every JWT signed by the previous deployment.
   secret: ${JWT_SECRET}
-  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  expiration-ms: ${JWT_EXPIRATION_MS:259200000}
   cookie-name: ${JWT_COOKIE_NAME:khi_auth_token}
   cookie-secure: ${JWT_COOKIE_SECURE:true}
   cookie-http-only: ${JWT_COOKIE_HTTP_ONLY:true}
   cookie-same-site: ${JWT_COOKIE_SAME_SITE:None}
   cookie-path: ${JWT_COOKIE_PATH:/}
-  cookie-max-age: ${JWT_COOKIE_MAX_AGE:86400}
 # ===============================
 # APP CUSTOM CONFIG
 # ===============================
@@ -123,15 +126,6 @@ server:
     max-swallow-size: 1GB
     max-http-form-post-size: 1GB
     max-parameter-count: 10000
-  servlet:
-    session:
-      cookie:
-        name: KHI_SESSION
-        http-only: true
-        secure: true
-        same-site: Lax
-        path: /
-        max-age: 86400
 # ===============================
 # LOGGING
 # ===============================
