@@ -123,8 +123,8 @@ server:
     include-binding-errors: always
     include-stacktrace: never
   tomcat:
-    max-swallow-size: 1GB
-    max-http-form-post-size: 1GB
+    max-swallow-size: 5GB
+    max-http-form-post-size: 5GB
     max-parameter-count: 10000
 # ===============================
 # LOGGING
