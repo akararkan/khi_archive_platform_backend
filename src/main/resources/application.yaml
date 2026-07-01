@@ -36,6 +36,10 @@ spring:
   web:
     locale: ckb
     locale-resolver: fixed
+    error:
+      include-message: always
+      include-binding-errors: always
+      include-stacktrace: never
   messages:
     basename: i18n/messages
     encoding: UTF-8
@@ -66,8 +70,9 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 1GB
-      max-request-size: 1GB
+      max-file-size: 5GB
+      # A 5 GB file plus the JSON part and multipart boundaries must fit.
+      max-request-size: 6GB
       file-size-threshold: 2MB
   # ===============================
   # CAFFEINE IN-MEMORY CACHE
@@ -118,13 +123,11 @@ aws:
 server:
   forward-headers-strategy: framework
   port: ${PORT:8080}
-  error:
-    include-message: always
-    include-binding-errors: always
-    include-stacktrace: never
   tomcat:
-    max-swallow-size: 5GB
-    max-http-form-post-size: 5GB
+    # Tomcat stores these connector limits as 32-bit byte counts, so values
+    # above 2 GB overflow. Spring's multipart limits above enforce the cap.
+    max-swallow-size: -1
+    max-http-form-post-size: -1
     max-parameter-count: 10000
 # ===============================
 # LOGGING

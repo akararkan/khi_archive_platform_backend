@@ -361,7 +361,7 @@ paths:
       summary: Create a maqam record with audio
       description: |
         `data` is a JSON part conforming to `MaqamCreateRequest`, `file` is
-        the audio (max 1 GB). The audio is uploaded to S3 under the
+        the audio (max 5 GB). The audio is uploaded to S3 under the
         `maqam-audio` folder; the URL is computed server-side and never
         accepted from the client.
       tags: [Maqam · Write]

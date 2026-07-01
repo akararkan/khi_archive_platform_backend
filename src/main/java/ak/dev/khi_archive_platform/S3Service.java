@@ -9,14 +9,25 @@ import ak.dev.khi_archive_platform.user.exceptions.UserStorageException;
 import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
+import software.amazon.awssdk.services.s3.model.CompletedPart;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.services.s3.model.UploadPartRequest;
+import software.amazon.awssdk.services.s3.model.UploadPartResponse;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,6 +52,7 @@ public class S3Service {
 
     private static final String DEFAULT_FOLDER = "files";
     private static final String PROFILE_FOLDER = "user_profile_images";
+    private static final int MULTIPART_PART_SIZE = 16 * 1024 * 1024;
 
     // ============================================================
     // UPLOAD METHODS
@@ -77,12 +89,93 @@ public class S3Service {
             throw new UserStorageException("File is empty.");
         }
 
+        String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
+        if (file.getSize() <= MULTIPART_PART_SIZE) {
+            try {
+                return upload(file.getBytes(), folder, originalFilename, file.getContentType());
+            } catch (IOException e) {
+                log.error("Failed to read MultipartFile for S3 upload", e);
+                throw new UserStorageException("Failed to read uploaded file.", e);
+            }
+        }
+
+        String key = buildKey(normalizeFolder(folder), originalFilename);
+        String uploadId = null;
+
         try {
-            String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "file";
-            return upload(file.getBytes(), folder, originalFilename, file.getContentType());
-        } catch (IOException e) {
-            log.error("Failed to read MultipartFile for S3 upload", e);
-            throw new UserStorageException("Failed to read uploaded file.", e);
+            CreateMultipartUploadResponse created = s3Client.createMultipartUpload(
+                    CreateMultipartUploadRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .contentType(file.getContentType())
+                            .build());
+            uploadId = created.uploadId();
+
+            List<CompletedPart> completedParts = new ArrayList<>();
+            byte[] buffer = new byte[MULTIPART_PART_SIZE];
+
+            try (InputStream input = file.getInputStream()) {
+                int partNumber = 1;
+                int bytesRead;
+                while ((bytesRead = input.readNBytes(buffer, 0, buffer.length)) > 0) {
+                    byte[] partBytes = bytesRead == buffer.length
+                            ? buffer
+                            : Arrays.copyOf(buffer, bytesRead);
+
+                    UploadPartResponse uploaded = s3Client.uploadPart(
+                            UploadPartRequest.builder()
+                                    .bucket(bucket)
+                                    .key(key)
+                                    .uploadId(uploadId)
+                                    .partNumber(partNumber)
+                                    .contentLength((long) bytesRead)
+                                    .build(),
+                            RequestBody.fromBytes(partBytes));
+
+                    completedParts.add(CompletedPart.builder()
+                            .partNumber(partNumber)
+                            .eTag(uploaded.eTag())
+                            .build());
+                    partNumber++;
+                }
+            }
+
+            s3Client.completeMultipartUpload(CompleteMultipartUploadRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .uploadId(uploadId)
+                    .multipartUpload(CompletedMultipartUpload.builder()
+                            .parts(completedParts)
+                            .build())
+                    .build());
+
+            String publicUrl = getPublicUrl(key);
+            log.info("S3 multipart upload successful: bucket={}, key={}, sizeBytes={}, parts={}, url={}",
+                    bucket, key, file.getSize(), completedParts.size(), publicUrl);
+            return publicUrl;
+        } catch (IOException | RuntimeException e) {
+            abortMultipartUpload(key, uploadId);
+            log.error("S3 multipart upload failed for key={}: {}", key, e.getMessage(), e);
+            throw new UserStorageException("Failed to upload file to S3.", e);
+        }
+    }
+
+    private void abortMultipartUpload(String key, String uploadId) {
+        if (uploadId == null || uploadId.isBlank()) {
+            return;
+        }
+
+        try {
+            s3Client.abortMultipartUpload(AbortMultipartUploadRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .uploadId(uploadId)
+                    .build());
+            log.info("Aborted incomplete S3 multipart upload: bucket={}, key={}, uploadId={}",
+                    bucket, key, uploadId);
+        } catch (RuntimeException abortError) {
+            log.warn("Could not abort incomplete S3 multipart upload: bucket={}, key={}, uploadId={}",
+                    bucket, key, uploadId, abortError);
         }
     }
 
