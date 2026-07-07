@@ -491,7 +491,7 @@ public class ImageService {
      * Generates image code in the format: PARENT_IMG_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_IMG_MASTER_V1_Copy(1)_000001
-     * If the project has no person: PROJECTNAME(CATEGORYCODE)_IMG_MASTER_V1_Copy(1)_000001
+     * If the project has no person: DENG_IMG_MASTER_V1_Copy(1)_000001
      */
     private String generateImageCode(Project project, String imageVersion, Integer versionNumber, Integer copyNumber) {
         String parentCode = project.getPerson() != null

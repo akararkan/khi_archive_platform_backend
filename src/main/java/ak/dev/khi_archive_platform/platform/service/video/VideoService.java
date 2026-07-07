@@ -483,7 +483,7 @@ public class VideoService {
      * Generates video code in the format: PARENT_VID_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_VID_MASTER_V1_Copy(1)_000001
-     * If the project has no person: PROJECTNAME(CATEGORYCODE)_VID_MASTER_V1_Copy(1)_000001
+     * If the project has no person: DENG_VID_MASTER_V1_Copy(1)_000001
      */
     private String generateVideoCode(Project project, String videoVersion, Integer versionNumber, Integer copyNumber) {
         String parentCode = project.getPerson() != null

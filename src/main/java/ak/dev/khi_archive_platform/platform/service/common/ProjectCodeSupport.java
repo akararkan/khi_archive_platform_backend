@@ -11,8 +11,8 @@ import java.util.Locale;
  * <p>Rules:
  * <ul>
  *   <li>Personal project prefix: PERSONCODE</li>
- *   <li>Untitled project prefix: normalized project name, e.g. NATURE</li>
- *   <li>Untitled media prefix: PROJECTNAME(CATEGORYCODE), e.g. NATURE(OLD_PICTURES)</li>
+ *   <li>Untitled project code: supplied by frontend, e.g. DENG-PROJ-000004</li>
+ *   <li>Untitled media prefix: code prefix before PROJ, e.g. DENG</li>
  * </ul>
  */
 public final class ProjectCodeSupport {
@@ -28,14 +28,17 @@ public final class ProjectCodeSupport {
     }
 
     public static String untitledMediaPrefix(Project project) {
-        return normalizeProjectNamePrefix(project.getProjectName()) + "(" + primaryCategoryCode(project) + ")";
-    }
-
-    public static String primaryCategoryCode(Project project) {
-        if (project == null || project.getCategories() == null || project.getCategories().isEmpty()) {
-            throw new IllegalArgumentException("At least one category is required");
+        if (project != null && project.getProjectCode() != null) {
+            String code = project.getProjectCode().trim().toUpperCase(Locale.ROOT);
+            String[] markers = {"-PROJ-", "_PROJ_"};
+            for (String marker : markers) {
+                int idx = code.indexOf(marker);
+                if (idx > 0) {
+                    return code.substring(0, idx);
+                }
+            }
         }
-        return project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+        return normalizeProjectNamePrefix(project != null ? project.getProjectName() : null);
     }
 
     private static String normalizeProjectNamePrefix(String projectName) {

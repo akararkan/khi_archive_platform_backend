@@ -299,20 +299,98 @@ GET /api/guest/persons/{personCode}/projects
 Project code rule:
 
 - person-linked projects: frontend may send `PERSONCODE-PROJ-######`
-- untitled projects: frontend should send `PROJECTNAME-PROJ-######`
+- non-person projects: frontend should send `PROJECTPREFIX-PROJ-######`
 
-For untitled media items, the code prefix uses the project name plus the first
-category code:
+Use the code prefix before `_PROJ` / `-PROJ` as the real project identifier.
+Example: `DENG-PROJ-000004` → prefix `DENG`.
 
-- `PROJECTNAME(CATEGORYCODE)_IMG_RAW_V1_Copy(1)_000001`
-- `PROJECTNAME(CATEGORYCODE)_AUDIO...`
+For non-person media items, the code prefix uses only that project-code prefix:
+
+- `DENG_IMG_RAW_V1_Copy(1)_000001`
+- `DENG_AUD_RAW_V1_Copy(1)_000001`
 
 Create flow:
 
 1. Frontend chooses project name and category.
-2. If there is no person, frontend builds the `projectCode` itself.
+2. If there is no person, frontend builds the `projectCode` itself, such as `DENG-PROJ-000004`.
 3. Frontend sends that `projectCode` with the create request.
 4. Backend stores the project and uses the same code in all later media links.
+
+## Recommended Frontend Rendering
+
+Use the same visual language everywhere so the app feels consistent.
+
+For media lists, each row/card should show:
+
+- media type badge: image, audio, video, or text
+- media code
+- title
+- project code
+- project name
+- person name when available, or a muted `No person`
+- category chips
+- public/private badge
+
+For the unified `/api/items` list, the backend already returns:
+
+- `projectCode`
+- `projectName`
+- `personCode`
+- `personName`
+- `categoryCodes`
+- `isPublic`
+- the full media DTO in `audio`, `video`, `image`, or `text`
+
+So on the internal/admin items page, show the same chips and badges there too.
+Each item row should still display its `categoryCodes` and the project identity.
+
+For the guest media endpoints, the DTO already includes:
+
+- `projectCode`
+- `projectName`
+- `person`
+- `categories`
+
+So the frontend can render category chips without extra API calls.
+
+Suggested visual hierarchy for each media card:
+
+1. top row: media type badge + code
+2. second row: title
+3. third row: project chip + person chip
+4. fourth row: category chips
+5. last row: visibility and trending badges
+
+Color suggestions:
+
+- image badge: green
+- audio badge: orange
+- video badge: red
+- text badge: indigo
+- project code chip: blue
+- person chip: purple when linked, gray when empty
+- category chips: neutral or lightly tinted, one stable color per category if you want visual grouping
+
+For project lists, each project card should show:
+
+- project name as the main title
+- project code as a smaller chip
+- person name if present
+- category chips from `categories[]`
+- media counts from `mediaCounts`
+- trending badge when `isTrending` is true
+
+For untitled projects, show the project code clearly because it is the primary identifier for media creation and item filtering.
+
+For person-linked projects, show the person name first, then the project code.
+
+If you want a very clean UI rule:
+
+- project name = user-friendly label
+- project code = stable technical identifier
+- category chips = classification
+- person chip = ownership/association
+- media code = immutable item identifier
 
 ## Media-Specific Pages
 

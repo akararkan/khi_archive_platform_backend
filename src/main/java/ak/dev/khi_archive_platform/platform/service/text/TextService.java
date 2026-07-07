@@ -480,7 +480,7 @@ public class TextService {
      * Generates text code in the format: PARENT_TXT_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_TXT_MASTER_V1_Copy(1)_000001
-     * If the project has no person: PROJECTNAME(CATEGORYCODE)_TXT_MASTER_V1_Copy(1)_000001
+     * If the project has no person: DENG_TXT_MASTER_V1_Copy(1)_000001
      */
     private String generateTextCode(Project project, String textVersion, Integer versionNumber, Integer copyNumber) {
         String parentCode = project.getPerson() != null

@@ -481,7 +481,7 @@ public class AudioService {
      * Generates audio code in the format: PARENT_AUD_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_AUD_RAW_V1_Copy(1)_000001
-     * If the project has no person: PROJECTNAME(CATEGORYCODE)_AUD_RAW_V1_Copy(1)_000001
+     * If the project has no person: DENG_AUD_RAW_V1_Copy(1)_000001
      */
     private String generateAudioCode(Project project, String audioVersion, Integer versionNumber, Integer copyNumber) {
         String parentCode = project.getPerson() != null
