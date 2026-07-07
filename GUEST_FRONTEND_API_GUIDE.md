@@ -298,14 +298,21 @@ GET /api/guest/persons/{personCode}/projects
 
 Project code rule:
 
-- person-linked projects: `PERSONCODE-PROJ-######`
-- untitled projects: `PROJECTNAME-PROJ-######`
+- person-linked projects: frontend may send `PERSONCODE-PROJ-######`
+- untitled projects: frontend should send `PROJECTNAME-PROJ-######`
 
 For untitled media items, the code prefix uses the project name plus the first
 category code:
 
 - `PROJECTNAME(CATEGORYCODE)_IMG_RAW_V1_Copy(1)_000001`
 - `PROJECTNAME(CATEGORYCODE)_AUDIO...`
+
+Create flow:
+
+1. Frontend chooses project name and category.
+2. If there is no person, frontend builds the `projectCode` itself.
+3. Frontend sends that `projectCode` with the create request.
+4. Backend stores the project and uses the same code in all later media links.
 
 ## Media-Specific Pages
 

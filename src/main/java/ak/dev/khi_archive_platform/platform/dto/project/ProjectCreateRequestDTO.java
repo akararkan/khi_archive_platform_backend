@@ -20,7 +20,13 @@ public class ProjectCreateRequestDTO {
     @NotBlank(message = "Project name is required")
     private String projectName;
 
-    /** Person code — if null or blank, project code is derived from the project name. */
+    /**
+     * Optional project code supplied by the frontend.
+     * If blank, the backend falls back to its legacy generator.
+     */
+    private String projectCode;
+
+    /** Person code — if null or blank, this is a non-person project. */
     private String personCode;
 
     /** At least one category code is required. */

@@ -93,11 +93,14 @@ public class ProjectService {
         List<Category> categories = resolveCategories(dto.getCategoryCodes());
         Person person = resolvePerson(dto.getPersonCode());
 
-        // Serialise code generation per prefix so two concurrent creates never
-        // produce the same project code. Different prefixes proceed in parallel.
-        String projectPrefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
-        codeGenLock.lock("project-code:" + projectPrefix);
-        String projectCode = generateProjectCode(person, dto.getProjectName());
+        String projectCode = normalizeOptionalProjectCode(dto.getProjectCode());
+        if (projectCode == null) {
+            // Legacy fallback only: keep existing behaviour when the frontend
+            // has not yet been updated to send a project code.
+            String projectPrefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
+            codeGenLock.lock("project-code:" + projectPrefix);
+            projectCode = generateProjectCode(person, dto.getProjectName());
+        }
         if (projectRepository.existsByProjectCodeAndRemovedAtIsNull(projectCode)) {
             throw new ProjectAlreadyExistsException("Project already exists with code: " + projectCode);
         }
@@ -122,7 +125,7 @@ public class ProjectService {
                 .collect(Collectors.joining(", "));
         auditService.record(saved, ProjectAuditAction.CREATE, authentication, request,
                 "Created project with code=" + saved.getProjectCode()
-                        + " person=" + (person != null ? person.getPersonCode() : projectPrefix)
+                        + " person=" + (person != null ? person.getPersonCode() : saved.getProjectCode())
                         + " categories=[" + categorySummary + "]");
         return toResponse(saved);
     }
@@ -168,16 +171,19 @@ public class ProjectService {
                 continue;
             }
 
-            String prefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
-            // Lock once per prefix so concurrent bulk requests don't race on the counter.
-            long seq = nextSeq.computeIfAbsent(prefix, p -> {
-                codeGenLock.lock("project-code:" + p);
-                return (person != null
-                        ? projectRepository.countByPerson(person)
-                        : projectRepository.countByPersonIsNull()) + 1L;
-            });
-            String projectCode = prefix + "-PROJ-" + String.format(Locale.ROOT, "%06d", seq);
-            nextSeq.put(prefix, seq + 1);
+            String projectCode = normalizeOptionalProjectCode(dto.getProjectCode());
+            if (projectCode == null) {
+                String prefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
+                // Lock once per prefix so concurrent bulk requests don't race on the counter.
+                long seq = nextSeq.computeIfAbsent(prefix, p -> {
+                    codeGenLock.lock("project-code:" + p);
+                    return (person != null
+                            ? projectRepository.countByPerson(person)
+                            : projectRepository.countByPersonIsNull()) + 1L;
+                });
+                projectCode = prefix + "-PROJ-" + String.format(Locale.ROOT, "%06d", seq);
+                nextSeq.put(prefix, seq + 1);
+            }
 
             if (projectRepository.existsByProjectCodeAndRemovedAtIsNull(projectCode)) {
                 skipped++;
@@ -631,6 +637,13 @@ public class ProjectService {
     private String normalizeProjectCode(String projectCode) {
         if (projectCode == null || projectCode.isBlank()) {
             throw new ProjectValidationException("Project code is required");
+        }
+        return projectCode.trim();
+    }
+
+    private String normalizeOptionalProjectCode(String projectCode) {
+        if (projectCode == null || projectCode.isBlank()) {
+            return null;
         }
         return projectCode.trim();
     }
