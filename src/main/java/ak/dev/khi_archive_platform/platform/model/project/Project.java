@@ -28,7 +28,7 @@ public class Project {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Unique project code, auto-generated: PERSONCODE_CATEGORYCODE or UNTITLED_CATEGORYCODE */
+    /** Unique project code, auto-generated: PERSONCODE-PROJ-###### or PROJECTNAME-PROJ-###### */
     @Column(name = "project_code", unique = true, nullable = false, length = 200)
     private String projectCode;
 
@@ -36,7 +36,7 @@ public class Project {
     private String projectName;
 
     /**
-     * Optional person link. If null, this is an "Untitled Project" (not tied to any person).
+     * Optional person link. If null, this is an untitled project and the code comes from the project name.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "person_id")

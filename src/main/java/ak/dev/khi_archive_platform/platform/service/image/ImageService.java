@@ -19,6 +19,7 @@ import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import ak.dev.khi_archive_platform.platform.service.common.ProjectCodeSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -490,15 +491,12 @@ public class ImageService {
      * Generates image code in the format: PARENT_IMG_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_IMG_MASTER_V1_Copy(1)_000001
-     * If the project has no person: CATEGORYCODE_IMG_MASTER_V1_Copy(1)_000001
+     * If the project has no person: PROJECTNAME(CATEGORYCODE)_IMG_MASTER_V1_Copy(1)_000001
      */
     private String generateImageCode(Project project, String imageVersion, Integer versionNumber, Integer copyNumber) {
-        String parentCode;
-        if (project.getPerson() != null) {
-            parentCode = project.getPerson().getPersonCode().toUpperCase(Locale.ROOT);
-        } else {
-            parentCode = project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
-        }
+        String parentCode = project.getPerson() != null
+                ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                : ProjectCodeSupport.untitledMediaPrefix(project);
 
         long sequence = imageRepository.countByProject(project) + 1;
 

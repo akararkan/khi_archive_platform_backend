@@ -20,7 +20,7 @@ public class ProjectCreateRequestDTO {
     @NotBlank(message = "Project name is required")
     private String projectName;
 
-    /** Person code — if null or blank, project is treated as "Untitled Project". */
+    /** Person code — if null or blank, project code is derived from the project name. */
     private String personCode;
 
     /** At least one category code is required. */

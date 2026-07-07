@@ -296,6 +296,17 @@ GET /api/guest/persons/{personCode}
 GET /api/guest/persons/{personCode}/projects
 ```
 
+Project code rule:
+
+- person-linked projects: `PERSONCODE-PROJ-######`
+- untitled projects: `PROJECTNAME-PROJ-######`
+
+For untitled media items, the code prefix uses the project name plus the first
+category code:
+
+- `PROJECTNAME(CATEGORYCODE)_IMG_RAW_V1_Copy(1)_000001`
+- `PROJECTNAME(CATEGORYCODE)_AUDIO...`
+
 ## Media-Specific Pages
 
 Use `/feed` for the main mixed public page. Use media-specific endpoints only

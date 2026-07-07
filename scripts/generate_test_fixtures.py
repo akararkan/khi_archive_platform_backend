@@ -10,13 +10,14 @@ Generates 5 test fixtures for bulk endpoints:
 Strategy:
   * 1000 untitled projects (no person), each tied to one category from
     test-categories-1000.json (round-robin).
-  * Project codes will be auto-generated as UNTITLED_PROJ_000001 ..
-    UNTITLED_PROJ_001000 by the server. Media fixtures reference these codes.
+  * Project codes are derived from project names as PROJECTNAME-PROJ-000001 ..
+    PROJECTNAME-PROJ-001000. Media fixtures reference these codes.
   * Each project gets exactly one image, text, video, audio record so media
     fixtures total 4000 rows (1000 each).
 """
 import json
 import os
+import re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CATEGORIES = os.path.join(ROOT, "test-categories-1000.json")
@@ -60,8 +61,9 @@ def cat_name(i: int) -> str:
 
 
 def project_code(i: int) -> str:
-    """Server auto-generates these — must match: UNTITLED_PROJ_000001 ..."""
-    return f"UNTITLED_PROJ_{i:06d}"
+    name = f"Collection of {cat_name(i - 1)} (Vol {i})"
+    prefix = re.sub(r"[^A-Za-z0-9]+", "_", name.upper()).strip("_")
+    return f"{prefix}-PROJ-{i:06d}"
 
 
 def projects():

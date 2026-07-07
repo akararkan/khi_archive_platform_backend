@@ -26,7 +26,7 @@ public final class ValidationPatterns {
     public static final String CATEGORY_CODE = "^[A-Za-z0-9_-]+$";
 
     // ── PROJECT CODE ──────────────────────────────────────────────────────────
-    /** Project codes: PERSONCODE_CATEGORYCODE or UNTITLED_CATEGORYCODE */
+    /** Project codes: PERSONCODE-PROJ-###### or PROJECTNAME-PROJ-###### */
     public static final String PROJECT_CODE = "^[A-Za-z0-9_-]+$";
 
     // ── AUDIO CODE ────────────────────────────────────────────────────────────

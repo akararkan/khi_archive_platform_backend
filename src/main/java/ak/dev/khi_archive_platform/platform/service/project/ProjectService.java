@@ -28,6 +28,7 @@ import ak.dev.khi_archive_platform.platform.service.audio.AudioAuditService;
 import ak.dev.khi_archive_platform.platform.service.audio.AudioReadCache;
 import ak.dev.khi_archive_platform.platform.service.category.CategoryCodeHelper;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
+import ak.dev.khi_archive_platform.platform.service.common.ProjectCodeSupport;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import ak.dev.khi_archive_platform.platform.service.image.ImageAuditService;
 import ak.dev.khi_archive_platform.platform.service.image.ImageReadCache;
@@ -94,10 +95,9 @@ public class ProjectService {
 
         // Serialise code generation per prefix so two concurrent creates never
         // produce the same project code. Different prefixes proceed in parallel.
-        codeGenLock.lock("project-code:" + (person != null
-                ? person.getPersonCode().toUpperCase(Locale.ROOT)
-                : "UNTITLED"));
-        String projectCode = generateProjectCode(person, categories);
+        String projectPrefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
+        codeGenLock.lock("project-code:" + projectPrefix);
+        String projectCode = generateProjectCode(person, dto.getProjectName());
         if (projectRepository.existsByProjectCodeAndRemovedAtIsNull(projectCode)) {
             throw new ProjectAlreadyExistsException("Project already exists with code: " + projectCode);
         }
@@ -122,7 +122,7 @@ public class ProjectService {
                 .collect(Collectors.joining(", "));
         auditService.record(saved, ProjectAuditAction.CREATE, authentication, request,
                 "Created project with code=" + saved.getProjectCode()
-                        + " person=" + (person != null ? person.getPersonCode() : "UNTITLED")
+                        + " person=" + (person != null ? person.getPersonCode() : projectPrefix)
                         + " categories=[" + categorySummary + "]");
         return toResponse(saved);
     }
@@ -168,9 +168,7 @@ public class ProjectService {
                 continue;
             }
 
-            String prefix = person != null
-                    ? person.getPersonCode().toUpperCase(Locale.ROOT)
-                    : "UNTITLED";
+            String prefix = ProjectCodeSupport.projectPrefix(person, dto.getProjectName());
             // Lock once per prefix so concurrent bulk requests don't race on the counter.
             long seq = nextSeq.computeIfAbsent(prefix, p -> {
                 codeGenLock.lock("project-code:" + p);
@@ -178,7 +176,7 @@ public class ProjectService {
                         ? projectRepository.countByPerson(person)
                         : projectRepository.countByPersonIsNull()) + 1L;
             });
-            String projectCode = prefix + "_PROJ_" + String.format(Locale.ROOT, "%06d", seq);
+            String projectCode = prefix + "-PROJ-" + String.format(Locale.ROOT, "%06d", seq);
             nextSeq.put(prefix, seq + 1);
 
             if (projectRepository.existsByProjectCodeAndRemovedAtIsNull(projectCode)) {
@@ -590,20 +588,18 @@ public class ProjectService {
      * <p>
      * One person can have many projects, so the code includes a sequence:
      * <ul>
-     *   <li>Person project: PERSONCODE_PROJ_000001, PERSONCODE_PROJ_000002, ...</li>
-     *   <li>Untitled project: UNTITLED_PROJ_000001, UNTITLED_PROJ_000002, ...</li>
+     *   <li>Person project: PERSONCODE-PROJ-000001, PERSONCODE-PROJ-000002, ...</li>
+     *   <li>Untitled project: PROJECTNAME-PROJ-000001, PROJECTNAME-PROJ-000002, ...</li>
      * </ul>
      */
-    private String generateProjectCode(Person person, List<Category> categories) {
-        String prefix = person != null
-                ? person.getPersonCode().toUpperCase(Locale.ROOT)
-                : "UNTITLED";
+    private String generateProjectCode(Person person, String projectName) {
+        String prefix = ProjectCodeSupport.projectPrefix(person, projectName);
 
         long sequence = (person != null
                 ? projectRepository.countByPerson(person)
                 : projectRepository.countByPersonIsNull()) + 1;
 
-        return prefix + "_PROJ_" + String.format(Locale.ROOT, "%06d", sequence);
+        return prefix + "-PROJ-" + String.format(Locale.ROOT, "%06d", sequence);
     }
 
     private List<Category> resolveCategories(List<String> categoryCodes) {

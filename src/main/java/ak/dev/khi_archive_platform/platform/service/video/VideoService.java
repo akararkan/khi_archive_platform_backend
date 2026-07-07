@@ -19,6 +19,7 @@ import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
+import ak.dev.khi_archive_platform.platform.service.common.ProjectCodeSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.servlet.http.HttpServletRequest;
@@ -482,15 +483,12 @@ public class VideoService {
      * Generates video code in the format: PARENT_VID_VERSION_VN_Copy(CN)_SEQUENCE
      * <p>
      * If the project has a person: PERSONCODE_VID_MASTER_V1_Copy(1)_000001
-     * If the project has no person: CATEGORYCODE_VID_MASTER_V1_Copy(1)_000001
+     * If the project has no person: PROJECTNAME(CATEGORYCODE)_VID_MASTER_V1_Copy(1)_000001
      */
     private String generateVideoCode(Project project, String videoVersion, Integer versionNumber, Integer copyNumber) {
-        String parentCode;
-        if (project.getPerson() != null) {
-            parentCode = project.getPerson().getPersonCode().toUpperCase(Locale.ROOT);
-        } else {
-            parentCode = project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
-        }
+        String parentCode = project.getPerson() != null
+                ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
+                : ProjectCodeSupport.untitledMediaPrefix(project);
 
         long sequence = videoRepository.countByProject(project) + 1;
 
