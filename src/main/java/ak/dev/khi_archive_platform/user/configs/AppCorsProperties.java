@@ -16,7 +16,8 @@ public class AppCorsProperties {
     private static final List<String> ALWAYS_ALLOWED_ORIGINS = List.of(
             "http://localhost:5173",
             "http://localhost:3000",
-            "https://khi-archive-platform-frontend.vercel.app"
+            "https://khi-archive-platform-frontend.vercel.app",
+            "https://khi-archive-platform.s3.us-east-1.amazonaws.com"
     );
 
     private String allowedOrigins = "";
