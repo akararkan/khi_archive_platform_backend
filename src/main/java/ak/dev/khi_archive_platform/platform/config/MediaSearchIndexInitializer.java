@@ -250,7 +250,7 @@ public class MediaSearchIndexInitializer {
 
     private void ensureAudioIndexes() {
         createTrgmIndex("idx_audios_audio_code_trgm",          "audios", "audio_code");
-        createTrgmIndex("idx_audios_fullname_trgm",            "audios", "fullname");
+        createTrgmIndex("idx_audios_file_name_trgm",           "audios", "file_name");
         createTrgmIndex("idx_audios_volume_name_trgm",         "audios", "volume_name");
         createTrgmIndex("idx_audios_directory_name_trgm",      "audios", "directory_name");
         createTrgmIndex("idx_audios_path_external_trgm",       "audios", "path_in_external");
@@ -278,7 +278,7 @@ public class MediaSearchIndexInitializer {
         createTrgmIndex("idx_audios_audio_file_note_trgm",     "audios", "audio_file_note");
 
         createBtreePatternIndex("idx_audios_audio_code_pat",            "audios", "audio_code");
-        createBtreePatternIndex("idx_audios_fullname_pat",              "audios", "fullname");
+        createBtreePatternIndex("idx_audios_file_name_pat",             "audios", "file_name");
         createBtreePatternIndex("idx_audios_origin_title_pat",          "audios", "origin_title");
         createBtreePatternIndex("idx_audios_alter_title_pat",           "audios", "alter_title");
         createBtreePatternIndex("idx_audios_central_kurdish_title_pat", "audios", "central_kurdish_title");

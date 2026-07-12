@@ -15,7 +15,7 @@ public class AudioBaseRequestDTO {
 
     private String projectCode;
 
-    private String fullName;
+    private String fileName;
     private String volumeName;
     private String directoryName;
     private String pathInExternal;

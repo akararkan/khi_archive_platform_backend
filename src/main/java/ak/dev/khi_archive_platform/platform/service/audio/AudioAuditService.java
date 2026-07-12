@@ -46,7 +46,7 @@ public class AudioAuditService {
         AudioAuditLog.AudioAuditLogBuilder builder = AudioAuditLog.builder()
                 .audioId(audio != null ? audio.getId() : null)
                 .audioCode(audio != null ? audio.getAudioCode() : null)
-                .audioTitle(audio != null ? audio.getFullname() : null)
+                .audioTitle(audio != null ? audio.getFileName() : null)
                 .action(action)
                 .actorUserId(actorUser != null ? actorUser.getUserId() : null)
                 .actorUsername(actorUser != null ? actorUser.getUsername() : (authentication != null ? authentication.getName() : "anonymous"))

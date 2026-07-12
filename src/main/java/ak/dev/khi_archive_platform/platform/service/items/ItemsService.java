@@ -202,7 +202,7 @@ public class ItemsService {
                 a.getAudioCode(),
                 a.getOriginTitle(), a.getAlterTitle(),
                 a.getCentralKurdishTitle(), a.getRomanizedTitle(),
-                a.getFullName(),
+                a.getFileName(),
                 a.getProjectCode(), a.getProjectName(),
                 a.getPersonCode(), a.getPersonName(),
                 a.getSpeaker(), a.getComposer(), a.getPoet(), a.getProducer(),
@@ -278,7 +278,7 @@ public class ItemsService {
                 .code(a.getAudioCode())
                 .title(firstNonBlank(a.getOriginTitle(), a.getAlterTitle(),
                         a.getCentralKurdishTitle(), a.getRomanizedTitle(),
-                        a.getFullName(), a.getAudioCode()))
+                        a.getFileName(), a.getAudioCode()))
                 .projectId(a.getProjectId())
                 .projectCode(a.getProjectCode())
                 .projectName(a.getProjectName())
@@ -389,6 +389,7 @@ public class ItemsService {
                 .personName(t.getPersonName())
                 .categoryCodes(t.getCategoryCodes())
                 .fileUrl(t.getTextFileUrl())
+                .coverImageUrl(t.getCoverImageUrl())
                 .fileExtension(t.getExtension())
                 .fileSize(t.getFileSize())
                 .language(t.getLanguage())

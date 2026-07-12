@@ -64,12 +64,12 @@ public class AudioService {
             "id",
             List.of(
                     "origin_title", "alter_title", "central_kurdish_title", "romanized_title",
-                    "audio_code", "fullname",
+                    "audio_code", "file_name",
                     "speaker", "composer", "poet", "producer",
                     "city", "region", "type_of_basta", "type_of_maqam"
             ),
             List.of(
-                    "audio_code", "fullname", "volume_name", "directory_name", "path_in_external", "auto_path",
+                    "audio_code", "file_name", "volume_name", "directory_name", "path_in_external", "auto_path",
                     "origin_title", "alter_title", "central_kurdish_title", "romanized_title",
                     "form", "type_of_basta", "type_of_maqam",
                     "abstract_text", "description",
@@ -126,6 +126,7 @@ public class AudioService {
         audio.setAudioCode(audioCode);
         audio.setProject(project);
         applyDto(audio, dto);
+        applyUploadedFileName(audio, audioFile, dto.getFileName());
         audio.setAudioFileUrl(uploadAudioFile(audioFile, audioCode));
         touchCreateAudit(audio, authentication);
 
@@ -186,7 +187,7 @@ public class AudioService {
             });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
-                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+                    : ProjectCodeSupport.untitledMediaPrefix(project);
             String audioCode = parentCode
                     + "_AUD_" + version
                     + "_V" + dto.getVersionNumber()
@@ -317,6 +318,7 @@ public class AudioService {
         if (audioFile != null && !audioFile.isEmpty()) {
             String newAudioFileUrl = uploadAudioFile(audioFile, normalized);
             audio.setAudioFileUrl(newAudioFileUrl);
+            applyUploadedFileName(audio, audioFile, dto != null ? dto.getFileName() : null);
             if (oldAudioFileUrl != null && !Objects.equals(oldAudioFileUrl, newAudioFileUrl)) {
                 deleteStoredFile(oldAudioFileUrl);
             }
@@ -506,7 +508,7 @@ public class AudioService {
 
         BeanUtils.copyProperties(dto, audio,
                 "projectCode",
-                "fullName", "pathInExternal", "autoPath",
+                "fileName", "pathInExternal", "autoPath",
                 "centralKurdishTitle", "romanizedTitle",
                 "recordingVenue", "dateCreated", "datePublished", "dateModified",
                 "lccClassification", "physicalAvailability",
@@ -521,7 +523,7 @@ public class AudioService {
             audio.setKeywords(ak.dev.khi_archive_platform.platform.service.common.Keywords.canonical(dto.getKeywords()));
         }
 
-        if (dto.getFullName() != null) audio.setFullname(dto.getFullName());
+        if (dto.getFileName() != null) audio.setFileName(dto.getFileName());
         if (dto.getPathInExternal() != null) audio.setPath_in_external(dto.getPathInExternal());
         if (dto.getAutoPath() != null) audio.setAuto_path(dto.getAutoPath());
         if (dto.getCentralKurdishTitle() != null) audio.setCentral_kurdish_title(dto.getCentralKurdishTitle());
@@ -561,7 +563,7 @@ public class AudioService {
                 : null);
 
         response.setAudioFileUrl(audio.getAudioFileUrl());
-        response.setFullName(audio.getFullname());
+        response.setFileName(audio.getFileName());
         response.setVolumeName(audio.getVolumeName());
         response.setDirectoryName(audio.getDirectoryName());
         response.setPathInExternal(audio.getPath_in_external());
@@ -645,7 +647,7 @@ public class AudioService {
 
     private String buildUpdateDetails(Audio before, Audio after) {
         List<String> changes = new ArrayList<>();
-        addChange(changes, "fullName", before.getFullname(), after.getFullname());
+        addChange(changes, "fileName", before.getFileName(), after.getFileName());
         addChange(changes, "volumeName", before.getVolumeName(), after.getVolumeName());
         addChange(changes, "directoryName", before.getDirectoryName(), after.getDirectoryName());
         addChange(changes, "pathInExternal", before.getPath_in_external(), after.getPath_in_external());
@@ -736,6 +738,15 @@ public class AudioService {
             return null;
         }
         return s3Service.upload(audioFile, AUDIO_FOLDER + "/" + audioCode);
+    }
+
+    private void applyUploadedFileName(Audio audio, MultipartFile file, String suppliedFileName) {
+        if (audio == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (suppliedFileName == null || suppliedFileName.isBlank()) {
+            audio.setFileName(file.getOriginalFilename());
+        }
     }
 
     private void deleteStoredFile(String audioFileUrl) {

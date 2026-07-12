@@ -86,6 +86,9 @@ public class GuestTextDTO implements Serializable {
     /** Public S3 URL of the text asset. */
     private String textFileUrl;
 
+    /** Optional public S3 URL of the book/document cover image. */
+    private String coverImageUrl;
+
     // ── Trending metadata ──────────────────────────────────────────────────
     private boolean isTrending;
     private Integer trendingRank;

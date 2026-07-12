@@ -531,7 +531,10 @@ public class ProjectService {
         for (Audio a : audios) deleteStoredFile(a.getAudioFileUrl());
         for (Video v : videos) deleteStoredFile(v.getVideoFileUrl());
         for (Image i : images) deleteStoredFile(i.getImageFileUrl());
-        for (Text  t : texts)  deleteStoredFile(t.getTextFileUrl());
+        for (Text  t : texts) {
+            deleteStoredFile(t.getTextFileUrl());
+            deleteStoredFile(t.getCoverImageUrl());
+        }
 
         // Per-row cascade audits emitted BEFORE the deleteAll wipes the rows.
         // Each REQUIRES_NEW commit captures the entity even if the surrounding

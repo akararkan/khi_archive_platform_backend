@@ -61,6 +61,8 @@ public class ItemDTO implements Serializable {
 
     // ── File ─────────────────────────────────────────────────────────────────
     private String fileUrl;
+    /** Text-only cover image URL. Null for audio/video/image. */
+    private String coverImageUrl;
     private String fileExtension;
     private String fileSize;
 

@@ -128,6 +128,7 @@ public class VideoService {
         video.setVideoCode(videoCode);
         video.setProject(project);
         applyDto(video, dto);
+        applyUploadedFileName(video, videoFile, dto.getFileName());
         video.setVideoFileUrl(uploadVideoFile(videoFile, videoCode));
         touchCreateAudit(video, authentication);
 
@@ -188,7 +189,7 @@ public class VideoService {
             });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
-                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+                    : ProjectCodeSupport.untitledMediaPrefix(project);
             String videoCode = parentCode
                     + "_VID_" + version
                     + "_V" + dto.getVersionNumber()
@@ -319,6 +320,7 @@ public class VideoService {
         if (videoFile != null && !videoFile.isEmpty()) {
             String newVideoFileUrl = uploadVideoFile(videoFile, normalized);
             video.setVideoFileUrl(newVideoFileUrl);
+            applyUploadedFileName(video, videoFile, dto != null ? dto.getFileName() : null);
             if (oldVideoFileUrl != null && !Objects.equals(oldVideoFileUrl, newVideoFileUrl)) {
                 deleteStoredFile(oldVideoFileUrl);
             }
@@ -727,6 +729,15 @@ public class VideoService {
             return null;
         }
         return s3Service.upload(videoFile, VIDEO_FOLDER + "/" + videoCode);
+    }
+
+    private void applyUploadedFileName(Video video, MultipartFile file, String suppliedFileName) {
+        if (video == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (suppliedFileName == null || suppliedFileName.isBlank()) {
+            video.setFileName(file.getOriginalFilename());
+        }
     }
 
     private void deleteStoredFile(String videoFileUrl) {

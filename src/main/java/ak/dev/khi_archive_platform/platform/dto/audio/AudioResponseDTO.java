@@ -30,7 +30,7 @@ public class AudioResponseDTO implements Serializable {
     private String personName;
     private List<String> categoryCodes;
     private String audioFileUrl;
-    private String fullName;
+    private String fileName;
     private String volumeName;
     private String directoryName;
     private String pathInExternal;

@@ -93,11 +93,12 @@ public class TextAPI {
     public ResponseEntity<TextResponseDTO> create(
             @RequestPart("data") String dataJson,
             @RequestPart("file") MultipartFile textFile,
+            @RequestPart(value = "coverImage", required = false) MultipartFile coverImage,
             Authentication auth,
             HttpServletRequest request
     ) {
         TextCreateRequestDTO dto = parseAndValidate(dataJson, TextCreateRequestDTO.class);
-        return ResponseEntity.ok(textService.create(dto, textFile, auth, request));
+        return ResponseEntity.ok(textService.create(dto, textFile, coverImage, auth, request));
     }
 
     /**
@@ -121,11 +122,12 @@ public class TextAPI {
             @PathVariable String textCode,
             @RequestPart("data") String dataJson,
             @RequestPart(value = "file", required = false) MultipartFile textFile,
+            @RequestPart(value = "coverImage", required = false) MultipartFile coverImage,
             Authentication auth,
             HttpServletRequest request
     ) {
         TextUpdateRequestDTO dto = parseAndValidate(dataJson, TextUpdateRequestDTO.class);
-        return ResponseEntity.ok(textService.update(textCode, dto, textFile, auth, request));
+        return ResponseEntity.ok(textService.update(textCode, dto, textFile, coverImage, auth, request));
     }
 
     /**

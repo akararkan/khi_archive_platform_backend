@@ -392,6 +392,53 @@ If you want a very clean UI rule:
 - person chip = ownership/association
 - media code = immutable item identifier
 
+## Admin Media Create/Update Changes
+
+All four media create/update forms should let the browser send the actual file
+object. The backend accepts all file formats; do not restrict uploads by
+extension unless the UI has a product reason to warn the user.
+
+Frontend does not need to send `fileName` manually for uploaded files. When the
+`fileName` field is empty, the backend stores the uploaded file's original
+filename automatically.
+
+Use `fileName` consistently for all media DTOs:
+
+- `image.fileName`
+- `audio.fileName`
+- `video.fileName`
+- `text.fileName`
+
+Do not use `audio.fullName`; it has been replaced by `audio.fileName`.
+
+Text records now support an optional cover image:
+
+- request multipart file part: `coverImage`
+- response field: `coverImageUrl`
+- bulk/import JSON field: `coverImageUrl`
+
+Text create multipart:
+
+```js
+const form = new FormData();
+form.append("data", JSON.stringify(textPayload));
+form.append("file", textFile);
+if (coverImageFile) form.append("coverImage", coverImageFile);
+```
+
+Text update multipart:
+
+```js
+const form = new FormData();
+form.append("data", JSON.stringify(textPayload));
+if (replacementTextFile) form.append("file", replacementTextFile);
+if (replacementCoverImage) form.append("coverImage", replacementCoverImage);
+```
+
+For text cards and detail pages, prefer the cover image as the visual thumbnail
+when `coverImageUrl` exists. Use `textFileUrl` for opening/downloading the
+document itself.
+
 ## Media-Specific Pages
 
 Use `/feed` for the main mixed public page. Use media-specific endpoints only

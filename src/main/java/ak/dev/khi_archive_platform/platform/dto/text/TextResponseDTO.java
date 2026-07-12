@@ -30,6 +30,7 @@ public class TextResponseDTO implements Serializable {
     private String personName;
     private List<String> categoryCodes;
     private String textFileUrl;
+    private String coverImageUrl;
 
     // File & Path
     private String fileName;

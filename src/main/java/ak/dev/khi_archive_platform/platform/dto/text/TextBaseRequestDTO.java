@@ -94,4 +94,7 @@ public class TextBaseRequestDTO {
     private String availability;
     private String owner;
     private String publisher;
+
+    /** Optional pre-existing cover image URL for imports or external assets. */
+    private String coverImageUrl;
 }

@@ -130,6 +130,7 @@ public class ImageService {
         image.setImageCode(imageCode);
         image.setProject(project);
         applyDto(image, dto);
+        applyUploadedFileName(image, imageFile, dto.getFileName());
         image.setImageFileUrl(uploadImageFile(imageFile, imageCode));
         touchCreateAudit(image, authentication);
 
@@ -191,7 +192,7 @@ public class ImageService {
             });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
-                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+                    : ProjectCodeSupport.untitledMediaPrefix(project);
             String imageCode = parentCode
                     + "_IMG_" + version
                     + "_V" + dto.getVersionNumber()
@@ -327,6 +328,7 @@ public class ImageService {
         if (imageFile != null && !imageFile.isEmpty()) {
             String newImageFileUrl = uploadImageFile(imageFile, normalized);
             image.setImageFileUrl(newImageFileUrl);
+            applyUploadedFileName(image, imageFile, dto != null ? dto.getFileName() : null);
             if (oldImageFileUrl != null && !Objects.equals(oldImageFileUrl, newImageFileUrl)) {
                 deleteStoredFile(oldImageFileUrl);
             }
@@ -725,6 +727,15 @@ public class ImageService {
             return null;
         }
         return s3Service.upload(imageFile, IMAGE_FOLDER + "/" + imageCode);
+    }
+
+    private void applyUploadedFileName(Image image, MultipartFile file, String suppliedFileName) {
+        if (image == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (suppliedFileName == null || suppliedFileName.isBlank()) {
+            image.setFileName(file.getOriginalFilename());
+        }
     }
 
     private void deleteStoredFile(String imageFileUrl) {

@@ -106,9 +106,9 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    AND (
                         LOWER(COALESCE(a.audio_code, ''))            LIKE LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.audio_code, ''))            LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
-                     OR LOWER(COALESCE(a.fullname, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\'
-                     OR LOWER(COALESCE(a.fullname, ''))              LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
-                     OR LOWER(COALESCE(a.fullname, '')) % LOWER(:qRaw)
+                     OR LOWER(COALESCE(a.file_name, ''))             LIKE LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(a.file_name, ''))             LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
+                     OR LOWER(COALESCE(a.file_name, '')) % LOWER(:qRaw)
                      OR LOWER(COALESCE(a.volume_name, ''))           LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.directory_name, ''))        LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
                      OR LOWER(COALESCE(a.path_in_external, ''))      LIKE '%' || LOWER(:q) || '%' ESCAPE '\\'
@@ -210,7 +210,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    WHEN LOWER(COALESCE(a.composer, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.poet, ''))                  LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.producer, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
-                   WHEN LOWER(COALESCE(a.fullname, ''))              LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
+                   WHEN LOWER(COALESCE(a.file_name, ''))             LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.city, ''))                  LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    WHEN LOWER(COALESCE(a.region, ''))                LIKE LOWER(:q) || '%' ESCAPE '\\' THEN 1
                    ELSE 0
@@ -228,7 +228,7 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
                    ELSE 0
                 END) DESC,
                GREATEST(
-                   similarity(LOWER(COALESCE(a.fullname, '')),               LOWER(:qRaw)),
+                   similarity(LOWER(COALESCE(a.file_name, '')),              LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.origin_title, '')),           LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.alter_title, '')),            LOWER(:qRaw)),
                    similarity(LOWER(COALESCE(a.central_kurdish_title, '')),  LOWER(:qRaw)),

@@ -39,8 +39,8 @@ public class Audio {
     @JoinColumn(name = "project_id", nullable = false)
     private Project project;
 
-    @Column(name = "fullname", columnDefinition = "TEXT")
-    private String fullname;
+    @Column(name = "file_name", columnDefinition = "TEXT")
+    private String fileName;
 
     @Column(name = "volume_name")
     private String volumeName;

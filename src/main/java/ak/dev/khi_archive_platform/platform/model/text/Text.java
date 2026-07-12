@@ -250,6 +250,9 @@ public class Text {
     @Column(name = "text_file_url", length = 1000)
     private String textFileUrl;
 
+    @Column(name = "cover_image_url", length = 1000)
+    private String coverImageUrl;
+
     // ─── Audit ───────────────────────────────────────────────────────────────────
 
     /** When false this record is hidden from all guest/public APIs.

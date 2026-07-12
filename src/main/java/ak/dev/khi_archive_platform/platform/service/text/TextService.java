@@ -49,6 +49,7 @@ import java.util.Set;
 public class TextService {
 
     private static final String TEXT_FOLDER = "texts";
+    private static final String TEXT_COVER_FOLDER = "texts/covers";
     private static final Set<String> VALID_VERSIONS = Set.of(
             "RAW", "MASTER", "RESTORED", "ARCHIVE", "ORIGINAL",
             "DIGITIZED", "PROFESSIONAL"
@@ -93,6 +94,7 @@ public class TextService {
 
     public TextResponseDTO create(TextCreateRequestDTO dto,
                                   MultipartFile textFile,
+                                  MultipartFile coverImage,
                                   Authentication authentication,
                                   HttpServletRequest request) {
         validateCreate(dto, textFile);
@@ -125,7 +127,11 @@ public class TextService {
         text.setTextCode(textCode);
         text.setProject(project);
         applyDto(text, dto);
+        applyUploadedFileName(text, textFile, dto.getFileName());
         text.setTextFileUrl(uploadTextFile(textFile, textCode));
+        if (coverImage != null && !coverImage.isEmpty()) {
+            text.setCoverImageUrl(uploadCoverImage(coverImage, textCode));
+        }
         touchCreateAudit(text, authentication);
 
         Text saved = textRepository.save(text);
@@ -185,7 +191,7 @@ public class TextService {
             });
             String parentCode = project.getPerson() != null
                     ? project.getPerson().getPersonCode().toUpperCase(Locale.ROOT)
-                    : project.getCategories().get(0).getCategoryCode().toUpperCase(Locale.ROOT);
+                    : ProjectCodeSupport.untitledMediaPrefix(project);
             String textCode = parentCode
                     + "_TXT_" + version
                     + "_V" + dto.getVersionNumber()
@@ -203,6 +209,7 @@ public class TextService {
             text.setProject(project);
             applyDto(text, dto);
             text.setTextFileUrl(dto.getTextFileUrl());
+            text.setCoverImageUrl(dto.getCoverImageUrl());
             text.setCreatedAt(now);
             text.setUpdatedAt(now);
             text.setCreatedBy(actor);
@@ -300,6 +307,7 @@ public class TextService {
     public TextResponseDTO update(String textCode,
                                   TextUpdateRequestDTO dto,
                                   MultipartFile textFile,
+                                  MultipartFile coverImage,
                                   Authentication authentication,
                                   HttpServletRequest request) {
         String normalized = normalizeRequiredCode(textCode, "Text code");
@@ -316,8 +324,18 @@ public class TextService {
         if (textFile != null && !textFile.isEmpty()) {
             String newTextFileUrl = uploadTextFile(textFile, normalized);
             text.setTextFileUrl(newTextFileUrl);
+            applyUploadedFileName(text, textFile, dto != null ? dto.getFileName() : null);
             if (oldTextFileUrl != null && !Objects.equals(oldTextFileUrl, newTextFileUrl)) {
                 deleteStoredFile(oldTextFileUrl);
+            }
+        }
+
+        String oldCoverImageUrl = text.getCoverImageUrl();
+        if (coverImage != null && !coverImage.isEmpty()) {
+            String newCoverImageUrl = uploadCoverImage(coverImage, normalized);
+            text.setCoverImageUrl(newCoverImageUrl);
+            if (oldCoverImageUrl != null && !Objects.equals(oldCoverImageUrl, newCoverImageUrl)) {
+                deleteStoredFile(oldCoverImageUrl);
             }
         }
 
@@ -424,11 +442,13 @@ public class TextService {
         }
 
         String fileUrl = text.getTextFileUrl();
+        String coverImageUrl = text.getCoverImageUrl();
         textAuditService.record(text, TextAuditAction.PURGE, authentication, request,
                 "Permanently deleted text record from trash");
         textRepository.delete(text);
         readCache.evictAll();
         deleteStoredFile(fileUrl);
+        deleteStoredFile(coverImageUrl);
     }
 
     /**
@@ -541,6 +561,7 @@ public class TextService {
                         ? project.getCategories().stream().map(c -> c.getCategoryCode()).toList()
                         : null)
                 .textFileUrl(text.getTextFileUrl())
+                .coverImageUrl(text.getCoverImageUrl())
                 // File & Path
                 .fileName(text.getFileName())
                 .volumeName(text.getVolumeName())
@@ -629,7 +650,8 @@ public class TextService {
         String projectInfo = text.getProject() != null ? text.getProject().getProjectCode() : "none";
         return "Created text record with code=" + text.getTextCode()
                 + " project=" + projectInfo
-                + " textFileUrl=" + text.getTextFileUrl();
+                + " textFileUrl=" + text.getTextFileUrl()
+                + " coverImageUrl=" + text.getCoverImageUrl();
     }
 
     private String buildUpdateDetails(Text before, Text after) {
@@ -689,6 +711,7 @@ public class TextService {
         addChange(changes, "owner", before.getOwner(), after.getOwner());
         addChange(changes, "publisher", before.getPublisher(), after.getPublisher());
         addChange(changes, "textFileUrl", before.getTextFileUrl(), after.getTextFileUrl());
+        addChange(changes, "coverImageUrl", before.getCoverImageUrl(), after.getCoverImageUrl());
 
         if (changes.isEmpty()) {
             return "Updated text record (no field changes detected)";
@@ -717,6 +740,22 @@ public class TextService {
             return null;
         }
         return s3Service.upload(textFile, TEXT_FOLDER + "/" + textCode);
+    }
+
+    private String uploadCoverImage(MultipartFile coverImage, String textCode) {
+        if (coverImage == null || coverImage.isEmpty()) {
+            return null;
+        }
+        return s3Service.upload(coverImage, TEXT_COVER_FOLDER + "/" + textCode);
+    }
+
+    private void applyUploadedFileName(Text text, MultipartFile file, String suppliedFileName) {
+        if (text == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (suppliedFileName == null || suppliedFileName.isBlank()) {
+            text.setFileName(file.getOriginalFilename());
+        }
     }
 
     private void deleteStoredFile(String textFileUrl) {

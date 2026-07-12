@@ -389,6 +389,7 @@ public class SeedDataLoader implements CommandLineRunner {
                     .owner(str(r, "owner"))
                     .publisher(str(r, "publisher"))
                     .textFileUrl(str(r, "textFileUrl"))
+                    .coverImageUrl(str(r, "coverImageUrl"))
                     .physicalAvailability(false)
                     .build();
             textRepo.save(t);
