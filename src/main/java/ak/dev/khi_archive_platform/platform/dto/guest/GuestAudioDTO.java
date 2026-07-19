@@ -85,7 +85,9 @@ public class GuestAudioDTO implements Serializable {
     private String owner;
     private String publisher;
 
-    /** Public S3 URL of the audio asset. */
+    /** Relative API stream path — e.g. {@code /api/guest/audio/AUD-001/stream}.
+     *  The frontend must prepend the API base URL. The actual S3 URL is
+     *  never exposed; all bytes are proxied through the backend. */
     private String audioFileUrl;
 
     // ── Trending metadata (injected after search, null when not trending) ──

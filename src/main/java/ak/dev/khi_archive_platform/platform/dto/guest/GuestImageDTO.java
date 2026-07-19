@@ -83,7 +83,9 @@ public class GuestImageDTO implements Serializable {
     private String owner;
     private String publisher;
 
-    /** Public S3 URL of the image asset. */
+    /** Relative API view path — e.g. {@code /api/guest/image/IMG-001/view}.
+     *  The frontend must prepend the API base URL. The actual S3 URL is
+     *  never exposed; all bytes are proxied through the backend. */
     private String imageFileUrl;
 
     // ── Trending metadata ──────────────────────────────────────────────────

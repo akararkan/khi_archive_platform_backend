@@ -545,7 +545,7 @@ public class VideoService {
                 .categoryCodes(project != null && project.getCategories() != null
                         ? project.getCategories().stream().map(c -> c.getCategoryCode()).toList()
                         : null)
-                .videoFileUrl(video.getVideoFileUrl())
+                .videoFileUrl("/api/video/" + video.getVideoCode() + "/stream")
                 // File & Path
                 .fileName(video.getFileName())
                 .volumeName(video.getVolumeName())

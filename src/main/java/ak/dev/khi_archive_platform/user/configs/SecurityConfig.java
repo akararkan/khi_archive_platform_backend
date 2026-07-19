@@ -65,6 +65,12 @@ public class SecurityConfig {
                         // Read-only API; the controllers only define GET handlers.
                         // Permit every method so anonymous browsers (and CORS
                         // preflights) never get blocked here.
+                        // This also covers the media stream proxies:
+                        //   /api/guest/audio/{code}/stream
+                        //   /api/guest/video/{code}/stream
+                        //   /api/guest/image/{code}/view
+                        // No S3 URL is ever sent to the browser — bytes are proxied
+                        // through the API, gated by removedAt IS NULL checks.
                         .requestMatchers("/api/guest/**").permitAll()
 
                         // ── Everything under /api/** requires a valid token ───────

@@ -562,7 +562,7 @@ public class AudioService {
                 ? project.getCategories().stream().map(c -> c.getCategoryCode()).toList()
                 : null);
 
-        response.setAudioFileUrl(audio.getAudioFileUrl());
+        response.setAudioFileUrl("/api/audio/" + audio.getAudioCode() + "/stream");
         response.setFileName(audio.getFileName());
         response.setVolumeName(audio.getVolumeName());
         response.setDirectoryName(audio.getDirectoryName());

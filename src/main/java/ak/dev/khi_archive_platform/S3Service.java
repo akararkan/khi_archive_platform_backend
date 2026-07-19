@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import ak.dev.khi_archive_platform.user.exceptions.UserStorageException;
 import software.amazon.awssdk.core.ResponseBytes;
+import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
@@ -18,6 +19,8 @@ import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
@@ -231,6 +234,65 @@ public class S3Service {
         } catch (S3Exception e) {
             log.error("S3 download failed for key={}: {}", key, e.getMessage(), e);
             throw new UserStorageException("Failed to download file from S3.", e);
+        }
+    }
+
+    /**
+     * Opens a streaming {@link ResponseInputStream} for the given S3 key.
+     * Unlike {@link #downloadByUrl}, this does NOT buffer the full object —
+     * the caller MUST close the returned stream after reading.
+     * Suitable for large files (video, audio) where loading all bytes into
+     * memory would be wasteful.
+     */
+    public ResponseInputStream<GetObjectResponse> openStream(String key) {
+        if (key == null || key.isBlank()) {
+            throw new UserStorageException("S3 key is required.");
+        }
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .build();
+            return s3Client.getObject(request);
+        } catch (S3Exception e) {
+            log.error("S3 openStream failed for key={}: {}", key, e.getMessage(), e);
+            throw new UserStorageException("Failed to stream file from S3.", e);
+        }
+    }
+
+    /**
+     * Opens a streaming {@link ResponseInputStream} with a byte-range request.
+     * The caller MUST close the returned stream after reading.
+     */
+    public ResponseInputStream<GetObjectResponse> openStreamRange(String key, long start, long end) {
+        if (key == null || key.isBlank()) {
+            throw new UserStorageException("S3 key is required.");
+        }
+        try {
+            GetObjectRequest request = GetObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(key)
+                    .range("bytes=" + start + "-" + end)
+                    .build();
+            return s3Client.getObject(request);
+        } catch (S3Exception e) {
+            log.error("S3 openStreamRange failed for key={} range={}-{}: {}", key, start, end, e.getMessage(), e);
+            throw new UserStorageException("Failed to stream file range from S3.", e);
+        }
+    }
+
+    /** Returns the size in bytes of an object without downloading it. */
+    public long getObjectSize(String key) {
+        if (key == null || key.isBlank()) {
+            throw new UserStorageException("S3 key is required.");
+        }
+        try {
+            HeadObjectResponse head = s3Client.headObject(
+                    HeadObjectRequest.builder().bucket(bucket).key(key).build());
+            return head.contentLength() != null ? head.contentLength() : 0L;
+        } catch (S3Exception e) {
+            log.error("S3 headObject failed for key={}: {}", key, e.getMessage(), e);
+            throw new UserStorageException("Failed to get object size from S3.", e);
         }
     }
 

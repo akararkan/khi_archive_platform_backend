@@ -191,7 +191,7 @@ final class GuestMapper {
                 .availability(a.getAvailability())
                 .owner(a.getOwner())
                 .publisher(a.getPublisher())
-                .audioFileUrl(a.getAudioFileUrl())
+                .audioFileUrl("/api/guest/audio/" + a.getAudioCode() + "/stream")
                 .build();
     }
 
@@ -242,7 +242,7 @@ final class GuestMapper {
                 .availability(v.getAvailability())
                 .owner(v.getOwner())
                 .publisher(v.getPublisher())
-                .videoFileUrl(v.getVideoFileUrl())
+                .videoFileUrl("/api/guest/video/" + v.getVideoCode() + "/stream")
                 .build();
     }
 
@@ -349,7 +349,7 @@ final class GuestMapper {
                 .availability(i.getAvailability())
                 .owner(i.getOwner())
                 .publisher(i.getPublisher())
-                .imageFileUrl(i.getImageFileUrl())
+                .imageFileUrl("/api/guest/image/" + i.getImageCode() + "/view")
                 .build();
     }
 }

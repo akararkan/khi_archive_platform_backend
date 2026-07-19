@@ -553,7 +553,7 @@ public class ImageService {
                 .categoryCodes(project != null && project.getCategories() != null
                         ? project.getCategories().stream().map(c -> c.getCategoryCode()).toList()
                         : null)
-                .imageFileUrl(image.getImageFileUrl())
+                .imageFileUrl("/api/image/" + image.getImageCode() + "/view")
                 // File & Path
                 .fileName(image.getFileName())
                 .volumeName(image.getVolumeName())
