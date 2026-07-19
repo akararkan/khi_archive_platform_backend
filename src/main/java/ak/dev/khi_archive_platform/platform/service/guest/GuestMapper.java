@@ -295,8 +295,8 @@ final class GuestMapper {
                 .availability(t.getAvailability())
                 .owner(t.getOwner())
                 .publisher(t.getPublisher())
-                .textFileUrl(t.getTextFileUrl())
-                .coverImageUrl(t.getCoverImageUrl())
+                .textFileUrl("/api/guest/text/" + t.getTextCode() + "/read")
+                .coverImageUrl("/api/guest/text/" + t.getTextCode() + "/cover")
                 .build();
     }
 
