@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.text;
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.model.text.Text;
 import ak.dev.khi_archive_platform.platform.repo.text.TextRepository;
+import ak.dev.khi_archive_platform.user.exceptions.UserStorageException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -16,8 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -127,14 +130,14 @@ public class TextStreamAPI {
         }
 
         MediaType contentType = resolveFileContentType(fileUrl);
-        long total = s3Service.getObjectSize(key);
+        long total = fetchSize(key, text.getTextCode(), "Book file not available");
 
         long[] range = parseRange(rangeHeader, total);
         long start = range[0];
         long end   = range[1];
         long len   = end - start + 1;
 
-        byte[] slice = downloadRange(key, start, end);
+        byte[] slice = downloadRange(key, start, end, text.getTextCode(), "Book file not available", "Failed to stream book file");
 
         boolean isRangeRequest = rangeHeader != null && !rangeHeader.isBlank();
 
@@ -142,7 +145,8 @@ public class TextStreamAPI {
         headers.setContentType(contentType);
         headers.set(HttpHeaders.ACCEPT_RANGES, "bytes");
         headers.set(HttpHeaders.CONTENT_DISPOSITION,
-                "inline; filename=\"" + safeFilename(text.getFileName(), text.getTextCode(), contentType) + "\"");
+                contentDisposition(safeFilename(text.getFileName(), text.getTextCode(), contentType),
+                        "book-" + text.getTextCode() + "." + contentType.getSubtype()));
         if (isRangeRequest) {
             headers.set(HttpHeaders.CONTENT_RANGE, "bytes " + start + "-" + end + "/" + total);
         }
@@ -170,7 +174,7 @@ public class TextStreamAPI {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Cover image not available");
         }
 
-        byte[] bytes = downloadFull(key);
+        byte[] bytes = downloadFull(key, text.getTextCode(), "Cover image not available", "Failed to serve cover image");
         MediaType contentType = resolveCoverContentType(coverUrl);
 
         HttpHeaders headers = new HttpHeaders();
@@ -184,27 +188,69 @@ public class TextStreamAPI {
         return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
     }
 
-    private byte[] downloadRange(String key, long start, long end) {
+    private long fetchSize(String key, String textCode, String notFoundMessage) {
+        try {
+            return s3Service.getObjectSize(key);
+        } catch (UserStorageException e) {
+            throw mapStorageError(e, notFoundMessage + " for " + textCode, notFoundMessage);
+        }
+    }
+
+    private byte[] downloadRange(String key, long start, long end, String textCode,
+                                 String notFoundMessage, String failureMessage) {
         try (ResponseInputStream<GetObjectResponse> stream = s3Service.openStreamRange(key, start, end)) {
             return stream.readAllBytes();
         } catch (IOException e) {
             log.error("Failed to read text range for key={} start={} end={}", key, start, end, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to stream book file");
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureMessage);
+        } catch (UserStorageException e) {
+            throw mapStorageError(e, notFoundMessage + " for " + textCode, failureMessage);
         }
     }
 
-    private byte[] downloadFull(String key) {
+    private byte[] downloadFull(String key, String textCode, String notFoundMessage, String failureMessage) {
         try (ResponseInputStream<GetObjectResponse> stream = s3Service.openStream(key)) {
             return stream.readAllBytes();
         } catch (IOException e) {
             log.error("Failed to read cover image for key={}", key, e);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to serve cover image");
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureMessage);
+        } catch (UserStorageException e) {
+            throw mapStorageError(e, notFoundMessage + " for " + textCode, failureMessage);
         }
+    }
+
+    /**
+     * Distinguishes "the S3 object is missing/corrupted" (404) from every
+     * other S3 failure (network, permissions, throttling — 500). Without this
+     * every missing object surfaced as an opaque generic 500.
+     */
+    private ResponseStatusException mapStorageError(UserStorageException e, String notFoundMessage, String failureMessage) {
+        if (e.getCause() instanceof S3Exception s3Exception && s3Exception.statusCode() == 404) {
+            log.warn("S3 object missing: {}", e.getMessage());
+            return new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundMessage);
+        }
+        log.error("S3 storage failure serving text/book content", e);
+        return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureMessage);
+    }
+
+    /**
+     * Builds an RFC 5987 {@code Content-Disposition} value that preserves
+     * non-ASCII filenames (Kurdish/Arabic titles are common in this archive)
+     * instead of collapsing them to underscores. Includes a sanitized ASCII
+     * {@code filename=} fallback for clients that ignore {@code filename*}.
+     */
+    private String contentDisposition(String rawFilename, String asciiFallbackName) {
+        String asciiFallback = rawFilename.replaceAll("[^a-zA-Z0-9._\\-() ]", "_");
+        if (asciiFallback.replaceAll("[_\\s]", "").isEmpty()) {
+            asciiFallback = asciiFallbackName;
+        }
+        String encoded = URLEncoder.encode(rawFilename, StandardCharsets.UTF_8).replace("+", "%20");
+        return "inline; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded;
     }
 
     private String safeFilename(String fileName, String fallbackCode, MediaType contentType) {
         if (fileName != null && !fileName.isBlank()) {
-            return fileName.replaceAll("[^a-zA-Z0-9._\\-() ]", "_");
+            return fileName;
         }
         return "book-" + fallbackCode + "." + contentType.getSubtype();
     }

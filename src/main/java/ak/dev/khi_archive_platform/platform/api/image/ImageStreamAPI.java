@@ -3,6 +3,7 @@ package ak.dev.khi_archive_platform.platform.api.image;
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.model.image.Image;
 import ak.dev.khi_archive_platform.platform.repo.image.ImageRepository;
+import ak.dev.khi_archive_platform.user.exceptions.UserStorageException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -16,8 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.io.IOException;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -100,13 +103,14 @@ public class ImageStreamAPI {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Image file not available");
         }
 
-        byte[] bytes = downloadFull(key);
+        byte[] bytes = downloadFull(key, image.getImageCode());
         MediaType contentType = resolveContentType(fileUrl);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(contentType);
+        String fallbackName = "image-" + image.getImageCode() + "." + contentType.getSubtype();
         headers.set(HttpHeaders.CONTENT_DISPOSITION,
-                "inline; filename=\"" + safeFilename(image.getFileName(), image.getImageCode(), contentType) + "\"");
+                contentDisposition(safeFilename(image.getFileName(), image.getImageCode(), contentType), fallbackName));
         headers.setETag(etag);
         // Public: 1-hour browser/CDN cache — images are immutable after upload.
         // Admin: never cache, may preview soft-deleted records.
@@ -117,20 +121,52 @@ public class ImageStreamAPI {
         return new ResponseEntity<>(bytes, headers, HttpStatus.OK);
     }
 
-    private byte[] downloadFull(String key) {
+    private byte[] downloadFull(String key, String imageCode) {
         try (ResponseInputStream<GetObjectResponse> stream = s3Service.openStream(key)) {
             return stream.readAllBytes();
         } catch (IOException e) {
             log.error("Failed to read image for key={}", key, e);
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to serve image");
+        } catch (UserStorageException e) {
+            throw mapStorageError(e, "Image not available for " + imageCode);
         }
+    }
+
+    /**
+     * Distinguishes "the S3 object is missing/corrupted" (404 — the record's
+     * stored URL no longer points at a real object) from every other S3
+     * failure (network, permissions, throttling — 500). Without this every
+     * missing object surfaced as an opaque generic 500.
+     */
+    private ResponseStatusException mapStorageError(UserStorageException e, String notFoundMessage) {
+        if (e.getCause() instanceof S3Exception s3Exception && s3Exception.statusCode() == 404) {
+            log.warn("S3 object missing: {}", e.getMessage());
+            return new ResponseStatusException(HttpStatus.NOT_FOUND, notFoundMessage);
+        }
+        log.error("S3 storage failure serving image", e);
+        return new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to serve image");
     }
 
     private String safeFilename(String fileName, String fallbackCode, MediaType contentType) {
         if (fileName != null && !fileName.isBlank()) {
-            return fileName.replaceAll("[^a-zA-Z0-9._\\-() ]", "_");
+            return fileName;
         }
         return "image-" + fallbackCode + "." + contentType.getSubtype();
+    }
+
+    /**
+     * Builds an RFC 5987 {@code Content-Disposition} value that preserves
+     * non-ASCII filenames (Kurdish/Arabic titles are common in this archive)
+     * instead of collapsing them to underscores. Includes a sanitized ASCII
+     * {@code filename=} fallback for clients that ignore {@code filename*}.
+     */
+    private String contentDisposition(String rawFilename, String asciiFallbackName) {
+        String asciiFallback = rawFilename.replaceAll("[^a-zA-Z0-9._\\-() ]", "_");
+        if (asciiFallback.replaceAll("[_\\s]", "").isEmpty()) {
+            asciiFallback = asciiFallbackName;
+        }
+        String encoded = URLEncoder.encode(rawFilename, StandardCharsets.UTF_8).replace("+", "%20");
+        return "inline; filename=\"" + asciiFallback + "\"; filename*=UTF-8''" + encoded;
     }
 
     private MediaType resolveContentType(String url) {
