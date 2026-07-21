@@ -181,6 +181,7 @@ final class GuestMapper {
                 .audience(a.getAudience())
                 .tags(copyList(a.getTags()))
                 .keywords(copyList(a.getKeywords()))
+                .duration(a.getDuration())
                 .dateCreated(a.getDate_created())
                 .datePublished(a.getDate_published())
                 .dateModified(a.getDate_modified())

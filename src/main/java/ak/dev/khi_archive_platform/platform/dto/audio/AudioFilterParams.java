@@ -22,7 +22,7 @@ import java.util.List;
  * Categorical equals (case-insensitive exact match):
  *   form, typeOfBasta, typeOfMaqam, language, dialect,
  *   typeOfComposition, typeOfPerformance, city, region, audience,
- *   audioChannel, fileExtension, bitRate, bitDepth, sampleRate,
+ *   audioChannel, fileExtension, duration, bitRate, bitDepth, sampleRate,
  *   lccClassification, accrualMethod, availability, licenseType.
  *
  * Long-text contains (case-insensitive substring):
@@ -65,6 +65,7 @@ public class AudioFilterParams {
     private String audience;
     private String audioChannel;
     private String fileExtension;
+    private String duration;
     private String bitRate;
     private String bitDepth;
     private String sampleRate;
@@ -131,7 +132,7 @@ public class AudioFilterParams {
                 && blank(language) && blank(dialect)
                 && blank(typeOfComposition) && blank(typeOfPerformance)
                 && blank(city) && blank(region) && blank(audience)
-                && blank(audioChannel) && blank(fileExtension)
+                && blank(audioChannel) && blank(fileExtension) && blank(duration)
                 && blank(bitRate) && blank(bitDepth) && blank(sampleRate)
                 && blank(lccClassification) && blank(accrualMethod)
                 && blank(availability) && blank(licenseType)

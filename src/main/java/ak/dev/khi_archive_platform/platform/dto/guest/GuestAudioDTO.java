@@ -73,6 +73,8 @@ public class GuestAudioDTO implements Serializable {
     private List<String> tags;
     private List<String> keywords;
 
+    private String duration;
+
     private Instant dateCreated;
     private Instant datePublished;
     private Instant dateModified;

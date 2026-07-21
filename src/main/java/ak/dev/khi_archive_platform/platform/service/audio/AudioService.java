@@ -606,6 +606,7 @@ public class AudioService {
         response.setAudioChannel(audio.getAudioChannel());
         response.setFileExtension(audio.getFileExtension());
         response.setFileSize(audio.getFileSize());
+        response.setDuration(audio.getDuration());
         response.setBitRate(audio.getBitRate());
         response.setBitDepth(audio.getBitDepth());
         response.setSampleRate(audio.getSampleRate());
@@ -690,6 +691,7 @@ public class AudioService {
         addChange(changes, "audioChannel", before.getAudioChannel(), after.getAudioChannel());
         addChange(changes, "fileExtension", before.getFileExtension(), after.getFileExtension());
         addChange(changes, "fileSize", before.getFileSize(), after.getFileSize());
+        addChange(changes, "duration", before.getDuration(), after.getDuration());
         addChange(changes, "bitRate", before.getBitRate(), after.getBitRate());
         addChange(changes, "bitDepth", before.getBitDepth(), after.getBitDepth());
         addChange(changes, "sampleRate", before.getSampleRate(), after.getSampleRate());

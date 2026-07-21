@@ -55,6 +55,7 @@ final class AudioFilterSupport {
         String audience = lower(params.getAudience());
         String audioChannel = lower(params.getAudioChannel());
         String fileExtension = lower(params.getFileExtension());
+        String duration = lower(params.getDuration());
         String bitRate = lower(params.getBitRate());
         String bitDepth = lower(params.getBitDepth());
         String sampleRate = lower(params.getSampleRate());
@@ -120,6 +121,7 @@ final class AudioFilterSupport {
             if (audience != null && !equalsLower(a.getAudience(), audience)) continue;
             if (audioChannel != null && !equalsLower(a.getAudioChannel(), audioChannel)) continue;
             if (fileExtension != null && !equalsLower(a.getFileExtension(), fileExtension)) continue;
+            if (duration != null && !equalsLower(a.getDuration(), duration)) continue;
             if (bitRate != null && !equalsLower(a.getBitRate(), bitRate)) continue;
             if (bitDepth != null && !equalsLower(a.getBitDepth(), bitDepth)) continue;
             if (sampleRate != null && !equalsLower(a.getSampleRate(), sampleRate)) continue;

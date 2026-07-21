@@ -73,6 +73,7 @@ public class AudioResponseDTO implements Serializable {
     private String audioChannel;
     private String fileExtension;
     private String fileSize;
+    private String duration;
     private String bitRate;
     private String bitDepth;
     private String sampleRate;

@@ -189,6 +189,9 @@ public class Audio {
     @Column(name = "file_size", length = 100)
     private String fileSize;
 
+    @Column(name = "duration", length = 100)
+    private String duration;
+
     @Column(name = "bit_rate", length = 100)
     private String bitRate;
 
