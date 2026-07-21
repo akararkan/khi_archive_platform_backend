@@ -17,6 +17,7 @@ import ak.dev.khi_archive_platform.platform.model.video.Video;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.repo.video.VideoRepository;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
+import ak.dev.khi_archive_platform.platform.service.common.MediaDurationExtractor;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import ak.dev.khi_archive_platform.platform.service.common.ProjectCodeSupport;
@@ -129,6 +130,7 @@ public class VideoService {
         video.setProject(project);
         applyDto(video, dto);
         applyUploadedFileName(video, videoFile, dto.getFileName());
+        applyFallbackDuration(video, videoFile);
         video.setVideoFileUrl(uploadVideoFile(videoFile, videoCode));
         touchCreateAudit(video, authentication);
 
@@ -321,6 +323,7 @@ public class VideoService {
             String newVideoFileUrl = uploadVideoFile(videoFile, normalized);
             video.setVideoFileUrl(newVideoFileUrl);
             applyUploadedFileName(video, videoFile, dto != null ? dto.getFileName() : null);
+            applyFallbackDuration(video, videoFile);
             if (oldVideoFileUrl != null && !Objects.equals(oldVideoFileUrl, newVideoFileUrl)) {
                 deleteStoredFile(oldVideoFileUrl);
             }
@@ -738,6 +741,22 @@ public class VideoService {
         if (suppliedFileName == null || suppliedFileName.isBlank()) {
             video.setFileName(file.getOriginalFilename());
         }
+    }
+
+    /**
+     * The browser-side probe (media-metadata.js) is the primary duration source and
+     * arrives via {@code dto.getDuration()} → {@link #applyDto}. This only fills the gap
+     * when that didn't happen — e.g. a non-browser client, or a codec the browser
+     * couldn't read. Best-effort: unsupported formats leave duration untouched.
+     */
+    private void applyFallbackDuration(Video video, MultipartFile file) {
+        if (video == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (video.getDuration() != null && !video.getDuration().isBlank()) {
+            return;
+        }
+        MediaDurationExtractor.extractDuration(file).ifPresent(video::setDuration);
     }
 
     private void deleteStoredFile(String videoFileUrl) {

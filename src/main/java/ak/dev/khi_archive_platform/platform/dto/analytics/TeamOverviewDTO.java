@@ -28,9 +28,15 @@ public class TeamOverviewDTO implements Serializable {
     private Map<String, EntityStatsDTO> byEntity;
     private List<UserSummaryDTO> topUsers;
     private List<DailyBucketDTO> daily;
+    /** One bucket per ISO week in the window, ordered newest first.
+     *  Weeks with zero activity are omitted. */
+    private List<WeeklyBucketDTO> weekly;
     /** One bucket per calendar month in the window, ordered newest first.
      *  Months with zero activity are omitted. */
     private List<MonthlyBucketDTO> monthly;
+    /** One bucket per calendar year in the window, ordered newest first.
+     *  Years with zero activity are omitted. */
+    private List<YearlyBucketDTO> yearly;
 
     /** Guest correction suggestion totals across all time. Null when not loaded. */
     private CorrectionStatsDTO corrections;

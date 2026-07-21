@@ -67,6 +67,30 @@ public interface AudioRepository extends JpaRepository<Audio, Long> {
 
     long countByProject(Project project);
 
+    // ─── Global inventory + visibility counts (admin analytics) ──────────────
+
+    /** Active audios across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed audios across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
+    /** Active audios visible to the public (NULL is_public treated as public). */
+    @Query("SELECT COUNT(a) FROM Audio a WHERE a.removedAt IS NULL AND (a.isPublic IS NULL OR a.isPublic = true)")
+    long countActivePublic();
+
+    /** Active audios explicitly hidden from the public (is_public = false). */
+    @Query("SELECT COUNT(a) FROM Audio a WHERE a.removedAt IS NULL AND a.isPublic = false")
+    long countActivePrivate();
+
+    /** Active audios whose parent project is visible to the public. */
+    @Query("SELECT COUNT(a) FROM Audio a WHERE a.removedAt IS NULL AND (a.project.isVisibleToPublic IS NULL OR a.project.isVisibleToPublic = true)")
+    long countActiveInVisibleProjects();
+
+    /** Active audios whose parent project is hidden from the public. */
+    @Query("SELECT COUNT(a) FROM Audio a WHERE a.removedAt IS NULL AND a.project.isVisibleToPublic = false")
+    long countActiveInHiddenProjects();
+
     /** Loads every audio for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Audio> findAllByProject(Project project);
 

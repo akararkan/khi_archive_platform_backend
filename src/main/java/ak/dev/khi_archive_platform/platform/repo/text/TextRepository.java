@@ -66,6 +66,30 @@ public interface TextRepository extends JpaRepository<Text, Long> {
 
     long countByProject(Project project);
 
+    // ─── Global inventory + visibility counts (admin analytics) ──────────────
+
+    /** Active texts across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed texts across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
+    /** Active texts visible to the public (NULL is_public treated as public). */
+    @Query("SELECT COUNT(t) FROM Text t WHERE t.removedAt IS NULL AND (t.isPublic IS NULL OR t.isPublic = true)")
+    long countActivePublic();
+
+    /** Active texts explicitly hidden from the public (is_public = false). */
+    @Query("SELECT COUNT(t) FROM Text t WHERE t.removedAt IS NULL AND t.isPublic = false")
+    long countActivePrivate();
+
+    /** Active texts whose parent project is visible to the public. */
+    @Query("SELECT COUNT(t) FROM Text t WHERE t.removedAt IS NULL AND (t.project.isVisibleToPublic IS NULL OR t.project.isVisibleToPublic = true)")
+    long countActiveInVisibleProjects();
+
+    /** Active texts whose parent project is hidden from the public. */
+    @Query("SELECT COUNT(t) FROM Text t WHERE t.removedAt IS NULL AND t.project.isVisibleToPublic = false")
+    long countActiveInHiddenProjects();
+
     /** Loads every text for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Text> findAllByProject(Project project);
 

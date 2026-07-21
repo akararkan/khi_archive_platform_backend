@@ -11,6 +11,8 @@ import ak.dev.khi_archive_platform.platform.dto.analytics.RecentActivityItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.TeamOverviewDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserActivityDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserSummaryDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.WeeklyBucketDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.YearlyBucketDTO;
 import ak.dev.khi_archive_platform.platform.repo.correction.GuestCorrectionRepository;
 import ak.dev.khi_archive_platform.platform.enums.CorrectionMediaType;
 import ak.dev.khi_archive_platform.platform.enums.CorrectionStatus;
@@ -28,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.IsoFields;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -66,7 +69,7 @@ public class AnalyticsService {
 
     public static final List<String> ENTITY_KEYS = List.of(
             "audio", "video", "image", "text", "project", "category", "person",
-            "maqam", "physical_media"
+            "maqam", "physical_media", "user"
     );
 
     /** Whitelist of action names accepted by the {@code actions=} filter. The
@@ -85,7 +88,12 @@ public class AnalyticsService {
             // Physical-media bulk import — one row per .xlsx upload.
             "IMPORT",
             // Physical-media catalog operations (admin manages allowed types).
-            "TYPE_CREATE", "TYPE_UPDATE", "TYPE_DELETE"
+            "TYPE_CREATE", "TYPE_UPDATE", "TYPE_DELETE",
+            // User-management actions from user_audit_logs (admin acting on
+            // employees/teachers). CREATE/UPDATE/DELETE/READ already covered above.
+            "ROLE_CHANGE", "GRANT_PERMISSIONS", "REVOKE_PERMISSIONS",
+            "ACTIVATE", "DEACTIVATE",
+            "WARNING_SENT", "WARNING_REVOKED", "WARNING_ACKNOWLEDGED"
     );
 
     /** Selectable choices surfaced to the admin UI via the action catalog
@@ -182,6 +190,22 @@ public class AnalyticsService {
                        request_method, request_path,
                        occurred_at, details
                   FROM physical_media_audit_logs
+                UNION ALL
+                -- User-management trail. This table uses target_user_id /
+                -- target_username instead of an entity_id/entity_code pair, so we
+                -- alias them into the same two slots. Rows are attributed to the
+                -- acting admin (actor_*), so an admin's own report/feed shows the
+                -- role changes, permission grants, activations and warnings they
+                -- performed; the affected user is carried in entity_code, so
+                -- "what happened to user X" is reachable via the feed filtered by
+                -- entityCode=X (or the team overview), not X's actor-keyed report.
+                SELECT 'user'     , action::text, target_user_id, target_username,
+                       actor_user_id, actor_username, actor_display_name,
+                       actor_authorities, actor_permissions,
+                       device_info, ip_address, session_id,
+                       request_method, request_path,
+                       occurred_at, details
+                  FROM user_audit_logs
             )
             """;
 
@@ -213,7 +237,9 @@ public class AnalyticsService {
 
         Map<String, EntityStatsDTO> byEntity = loadEntityStats(f, w);
         List<DailyBucketDTO> daily = loadDailyBuckets(f, w);
+        List<WeeklyBucketDTO> weekly = loadWeeklyBuckets(f, w);
         List<MonthlyBucketDTO> monthly = loadMonthlyBuckets(f, w);
+        List<YearlyBucketDTO> yearly = loadYearlyBuckets(f, w);
         FeedPageDTO recent = loadRecentFeed(f, w, size, page, sort);
         long total = byEntity.values().stream().mapToLong(EntityStatsDTO::getTotal).sum();
 
@@ -232,7 +258,9 @@ public class AnalyticsService {
                 .totalActions(total)
                 .byEntity(byEntity)
                 .daily(daily)
+                .weekly(weekly)
                 .monthly(monthly)
+                .yearly(yearly)
                 .recent(recent)
                 .build();
     }
@@ -245,7 +273,9 @@ public class AnalyticsService {
 
         Map<String, EntityStatsDTO> byEntity = loadEntityStats(filter, w);
         List<DailyBucketDTO> daily = loadDailyBuckets(filter, w);
+        List<WeeklyBucketDTO> weekly = loadWeeklyBuckets(filter, w);
         List<MonthlyBucketDTO> monthly = loadMonthlyBuckets(filter, w);
+        List<YearlyBucketDTO> yearly = loadYearlyBuckets(filter, w);
         List<UserSummaryDTO> users = loadUserSummaries(filter, w);
         long total = byEntity.values().stream().mapToLong(EntityStatsDTO::getTotal).sum();
 
@@ -262,7 +292,9 @@ public class AnalyticsService {
                 .byEntity(byEntity)
                 .topUsers(top)
                 .daily(daily)
+                .weekly(weekly)
                 .monthly(monthly)
+                .yearly(yearly)
                 .corrections(loadCorrectionStats())
                 .build();
     }
@@ -290,6 +322,18 @@ public class AnalyticsService {
     /** Daily buckets, exposed as a standalone endpoint. Always live. */
     public List<DailyBucketDTO> getDaily(AnalyticsFilter filter) {
         return loadDailyBuckets(filter, window(filter));
+    }
+
+    /** Weekly buckets (ISO weeks, Monday-anchored). Always live. Each bucket
+     *  also carries the distinct-actor count for that week. */
+    public List<WeeklyBucketDTO> getWeekly(AnalyticsFilter filter) {
+        return loadWeeklyBuckets(filter, window(filter));
+    }
+
+    /** Yearly buckets. Always live. Each bucket also carries the distinct-actor
+     *  count for that year. */
+    public List<YearlyBucketDTO> getYearly(AnalyticsFilter filter) {
+        return loadYearlyBuckets(filter, window(filter));
     }
 
     /** Monthly buckets, exposed as a standalone endpoint. Always live.
@@ -433,6 +477,103 @@ public class AnalyticsService {
                             firstOfMonth.getMonthValue());
             out.add(MonthlyBucketDTO.builder()
                     .month(firstOfMonth)
+                    .label(label)
+                    .total(longOf(r[1]))
+                    .created(longOf(r[2]))
+                    .updated(longOf(r[3]))
+                    .deleted(longOf(r[4]))
+                    .restored(longOf(r[5]))
+                    .purged(longOf(r[6]))
+                    .viewed(longOf(r[7]))
+                    .searched(longOf(r[8]))
+                    .activeUsers(longOf(r[9]))
+                    .build());
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<WeeklyBucketDTO> loadWeeklyBuckets(AnalyticsFilter filter, Window w) {
+        WhereClause where = buildWhere(filter, w, sanitisedEntities(filter));
+
+        // DATE_TRUNC('week', ...) in Postgres anchors to Monday (ISO week start).
+        String sql = ALL_LOGS_CTE + """
+                SELECT DATE_TRUNC('week', occurred_at)                               AS week,
+                       COUNT(*)                                                      AS total,
+                       COUNT(*) FILTER (WHERE action = 'CREATE')                     AS created,
+                       COUNT(*) FILTER (WHERE action = 'UPDATE')                     AS updated,
+                       COUNT(*) FILTER (WHERE action IN ('DELETE','REMOVE'))         AS deleted,
+                       COUNT(*) FILTER (WHERE action = 'RESTORE')                    AS restored,
+                       COUNT(*) FILTER (WHERE action = 'PURGE')                      AS purged,
+                       COUNT(*) FILTER (WHERE action = 'READ')                       AS viewed,
+                       COUNT(*) FILTER (WHERE action = 'SEARCH')                     AS searched,
+                       COUNT(DISTINCT actor_username) FILTER
+                           (WHERE actor_username IS NOT NULL)                        AS active_users
+                  FROM all_logs
+                """ + where.sql + " GROUP BY week ORDER BY week DESC";
+
+        Query q = em.createNativeQuery(sql);
+        where.bind(q);
+
+        List<WeeklyBucketDTO> out = new ArrayList<>();
+        for (Object row : q.getResultList()) {
+            Object[] r = (Object[]) row;
+            Instant week = instantOf(r[0]);
+            java.time.LocalDate monday = week == null
+                    ? null : week.atZone(ZoneOffset.UTC).toLocalDate();
+            String label = monday == null ? null
+                    : String.format("%04d-W%02d",
+                            monday.get(IsoFields.WEEK_BASED_YEAR),
+                            monday.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR));
+            out.add(WeeklyBucketDTO.builder()
+                    .week(monday)
+                    .label(label)
+                    .total(longOf(r[1]))
+                    .created(longOf(r[2]))
+                    .updated(longOf(r[3]))
+                    .deleted(longOf(r[4]))
+                    .restored(longOf(r[5]))
+                    .purged(longOf(r[6]))
+                    .viewed(longOf(r[7]))
+                    .searched(longOf(r[8]))
+                    .activeUsers(longOf(r[9]))
+                    .build());
+        }
+        return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<YearlyBucketDTO> loadYearlyBuckets(AnalyticsFilter filter, Window w) {
+        WhereClause where = buildWhere(filter, w, sanitisedEntities(filter));
+
+        String sql = ALL_LOGS_CTE + """
+                SELECT DATE_TRUNC('year', occurred_at)                               AS year,
+                       COUNT(*)                                                      AS total,
+                       COUNT(*) FILTER (WHERE action = 'CREATE')                     AS created,
+                       COUNT(*) FILTER (WHERE action = 'UPDATE')                     AS updated,
+                       COUNT(*) FILTER (WHERE action IN ('DELETE','REMOVE'))         AS deleted,
+                       COUNT(*) FILTER (WHERE action = 'RESTORE')                    AS restored,
+                       COUNT(*) FILTER (WHERE action = 'PURGE')                      AS purged,
+                       COUNT(*) FILTER (WHERE action = 'READ')                       AS viewed,
+                       COUNT(*) FILTER (WHERE action = 'SEARCH')                     AS searched,
+                       COUNT(DISTINCT actor_username) FILTER
+                           (WHERE actor_username IS NOT NULL)                        AS active_users
+                  FROM all_logs
+                """ + where.sql + " GROUP BY year ORDER BY year DESC";
+
+        Query q = em.createNativeQuery(sql);
+        where.bind(q);
+
+        List<YearlyBucketDTO> out = new ArrayList<>();
+        for (Object row : q.getResultList()) {
+            Object[] r = (Object[]) row;
+            Instant year = instantOf(r[0]);
+            java.time.LocalDate firstOfYear = year == null
+                    ? null : year.atZone(ZoneOffset.UTC).toLocalDate();
+            String label = firstOfYear == null ? null
+                    : String.format("%04d", firstOfYear.getYear());
+            out.add(YearlyBucketDTO.builder()
+                    .year(firstOfYear)
                     .label(label)
                     .total(longOf(r[1]))
                     .created(longOf(r[2]))

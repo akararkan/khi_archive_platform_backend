@@ -106,6 +106,12 @@
 			<artifactId>metadata-extractor</artifactId>
 			<version>2.19.0</version>
 		</dependency>
+		<!-- Pure-Java MP3 frame reader — backend fallback duration source when the browser-side probe misses -->
+		<dependency>
+			<groupId>com.mpatric</groupId>
+			<artifactId>mp3agic</artifactId>
+			<version>0.9.1</version>
+		</dependency>
 		<!-- Validation: Hibernate Validator (implementation) + jakarta.validation-api (spec) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

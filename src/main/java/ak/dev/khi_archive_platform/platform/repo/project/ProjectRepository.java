@@ -63,6 +63,22 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
 
     long countByPersonIsNull();
 
+    // ─── Global inventory + visibility counts (admin analytics) ──────────────
+
+    /** Active projects across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed projects across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
+    /** Active projects visible to the public (NULL flag treated as visible). */
+    @Query("SELECT COUNT(p) FROM Project p WHERE p.removedAt IS NULL AND (p.isVisibleToPublic IS NULL OR p.isVisibleToPublic = true)")
+    long countActiveVisible();
+
+    /** Active projects explicitly hidden from the public (is_visible_to_public = false). */
+    @Query("SELECT COUNT(p) FROM Project p WHERE p.removedAt IS NULL AND p.isVisibleToPublic = false")
+    long countActiveHidden();
+
     /** Counts active projects for the given person — used by guest person detail. */
     long countByPersonAndRemovedAtIsNull(Person person);
 

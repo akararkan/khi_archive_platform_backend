@@ -16,6 +16,12 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     List<Category> findAllByRemovedAtIsNotNull();
 
+    /** Active categories across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed categories across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
     Optional<Category> findByCategoryCode(String categoryCode);
 
     /**

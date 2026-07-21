@@ -66,6 +66,30 @@ public interface ImageRepository extends JpaRepository<Image, Long> {
 
     long countByProject(Project project);
 
+    // ─── Global inventory + visibility counts (admin analytics) ──────────────
+
+    /** Active images across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed images across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
+    /** Active images visible to the public (NULL is_public treated as public). */
+    @Query("SELECT COUNT(i) FROM Image i WHERE i.removedAt IS NULL AND (i.isPublic IS NULL OR i.isPublic = true)")
+    long countActivePublic();
+
+    /** Active images explicitly hidden from the public (is_public = false). */
+    @Query("SELECT COUNT(i) FROM Image i WHERE i.removedAt IS NULL AND i.isPublic = false")
+    long countActivePrivate();
+
+    /** Active images whose parent project is visible to the public. */
+    @Query("SELECT COUNT(i) FROM Image i WHERE i.removedAt IS NULL AND (i.project.isVisibleToPublic IS NULL OR i.project.isVisibleToPublic = true)")
+    long countActiveInVisibleProjects();
+
+    /** Active images whose parent project is hidden from the public. */
+    @Query("SELECT COUNT(i) FROM Image i WHERE i.removedAt IS NULL AND i.project.isVisibleToPublic = false")
+    long countActiveInHiddenProjects();
+
     /** Loads every image for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Image> findAllByProject(Project project);
 

@@ -16,6 +16,12 @@ public interface PersonRepository extends JpaRepository<Person, Long> {
 
     List<Person> findAllByRemovedAtIsNotNull();
 
+    /** Active persons across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed persons across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
     Optional<Person> findByPersonCode(String personCode);
 
     /**

@@ -13,15 +13,17 @@ import java.util.Map;
 
 /**
  * Comprehensive activity picture for a single user over a time window.
- * Built from a single UNION ALL query across the seven {@code *_audit_logs}
- * tables and cached in Redis for sub-millisecond hot reads.
+ * Built from a single UNION ALL query across the {@code *_audit_logs} tables
+ * (the nine entity domains plus {@code user_audit_logs} for admin
+ * user-management actions) and cached in Caffeine for sub-millisecond hot reads.
  *
  * <p>Field shapes:
  * <ul>
- *   <li>{@code byEntity} — keyed on entity name ("audio", "video", …);
+ *   <li>{@code byEntity} — keyed on entity name ("audio", "video", …, "user");
  *       value is the per-entity action breakdown.</li>
- *   <li>{@code daily} — one bucket per day in the window, ordered newest
- *       first. Days with zero activity are omitted.</li>
+ *   <li>{@code daily} / {@code weekly} / {@code monthly} / {@code yearly} —
+ *       time-series buckets over the window at each granularity, ordered newest
+ *       first. Empty buckets are omitted.</li>
  *   <li>{@code recent} — the most recent audit rows (default 50), already
  *       sorted across entities.</li>
  * </ul>
@@ -46,9 +48,15 @@ public class UserActivityDTO implements Serializable {
     private long totalActions;
     private Map<String, EntityStatsDTO> byEntity;
     private List<DailyBucketDTO> daily;
+    /** One bucket per ISO week in the window, ordered newest first.
+     *  Weeks with zero activity are omitted. */
+    private List<WeeklyBucketDTO> weekly;
     /** One bucket per calendar month in the window, ordered newest first.
      *  Months with zero activity are omitted. */
     private List<MonthlyBucketDTO> monthly;
+    /** One bucket per calendar year in the window, ordered newest first.
+     *  Years with zero activity are omitted. */
+    private List<YearlyBucketDTO> yearly;
     /** Paginated slice of this user's activity, ordered per the request's
      *  {@code sort} parameter. Carries {@code page/size/totalElements/...} so
      *  the UI can render full pagination controls. */

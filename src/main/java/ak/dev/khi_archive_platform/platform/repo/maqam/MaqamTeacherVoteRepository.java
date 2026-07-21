@@ -23,6 +23,33 @@ public interface MaqamTeacherVoteRepository extends JpaRepository<MaqamTeacherVo
     List<MaqamTeacherVote> findAllByTeacherUserId(Long teacherUserId);
 
     /**
+     * Per-teacher vote/assignment rollup over ACTIVE records only (parent
+     * {@code list_of_maqam.removed_at IS NULL}). Each row is
+     * {@code [teacherUserId, teacherUsername, teacherDisplayName,
+     * assignedRecords, votesCast, distinctMaqamTypes, totalListenSeconds,
+     * maxPositionSeconds, firstVotedAt, lastListenAt]}. Drives the teacher
+     * leaderboard in the maqam analytics overview. Uses the idx_mtv_teacher
+     * index.
+     */
+    @Query("""
+            SELECT v.teacherUserId,
+                   MAX(v.teacherUsername),
+                   MAX(v.teacherDisplayName),
+                   COUNT(v.id),
+                   SUM(CASE WHEN v.votedAt IS NOT NULL THEN 1 ELSE 0 END),
+                   COUNT(DISTINCT v.maqamType),
+                   COALESCE(SUM(v.totalListenSeconds), 0),
+                   COALESCE(MAX(v.maxPositionSeconds), 0),
+                   MIN(v.votedAt),
+                   MAX(v.lastListenAt)
+              FROM MaqamTeacherVote v
+              JOIN v.listOfMaqam m
+             WHERE m.removedAt IS NULL
+             GROUP BY v.teacherUserId
+            """)
+    List<Object[]> teacherVoteStats();
+
+    /**
      * Loads every active-record vote belonging to the given teacher, eagerly
      * fetching the parent {@link ListOfMaqam}. Used by the teacher's "where
      * was I?" recent-activity feed.

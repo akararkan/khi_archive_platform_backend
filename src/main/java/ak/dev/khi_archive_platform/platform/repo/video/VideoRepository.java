@@ -66,6 +66,30 @@ public interface VideoRepository extends JpaRepository<Video, Long> {
 
     long countByProject(Project project);
 
+    // ─── Global inventory + visibility counts (admin analytics) ──────────────
+
+    /** Active videos across the whole archive (removed_at IS NULL). */
+    long countByRemovedAtIsNull();
+
+    /** Soft-trashed videos across the whole archive (removed_at IS NOT NULL). */
+    long countByRemovedAtIsNotNull();
+
+    /** Active videos visible to the public (NULL is_public treated as public). */
+    @Query("SELECT COUNT(v) FROM Video v WHERE v.removedAt IS NULL AND (v.isPublic IS NULL OR v.isPublic = true)")
+    long countActivePublic();
+
+    /** Active videos explicitly hidden from the public (is_public = false). */
+    @Query("SELECT COUNT(v) FROM Video v WHERE v.removedAt IS NULL AND v.isPublic = false")
+    long countActivePrivate();
+
+    /** Active videos whose parent project is visible to the public. */
+    @Query("SELECT COUNT(v) FROM Video v WHERE v.removedAt IS NULL AND (v.project.isVisibleToPublic IS NULL OR v.project.isVisibleToPublic = true)")
+    long countActiveInVisibleProjects();
+
+    /** Active videos whose parent project is hidden from the public. */
+    @Query("SELECT COUNT(v) FROM Video v WHERE v.removedAt IS NULL AND v.project.isVisibleToPublic = false")
+    long countActiveInHiddenProjects();
+
     /** Loads every video for a project regardless of trash state — used during purge to collect S3 URLs. */
     List<Video> findAllByProject(Project project);
 

@@ -17,6 +17,7 @@ import ak.dev.khi_archive_platform.platform.model.project.Project;
 import ak.dev.khi_archive_platform.platform.repo.audio.AudioRepository;
 import ak.dev.khi_archive_platform.platform.repo.project.ProjectRepository;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
+import ak.dev.khi_archive_platform.platform.service.common.MediaDurationExtractor;
 import ak.dev.khi_archive_platform.platform.service.common.MediaSearchSqlBuilder;
 import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import ak.dev.khi_archive_platform.platform.service.common.ProjectCodeSupport;
@@ -127,6 +128,7 @@ public class AudioService {
         audio.setProject(project);
         applyDto(audio, dto);
         applyUploadedFileName(audio, audioFile, dto.getFileName());
+        applyFallbackDuration(audio, audioFile);
         audio.setAudioFileUrl(uploadAudioFile(audioFile, audioCode));
         touchCreateAudit(audio, authentication);
 
@@ -319,6 +321,7 @@ public class AudioService {
             String newAudioFileUrl = uploadAudioFile(audioFile, normalized);
             audio.setAudioFileUrl(newAudioFileUrl);
             applyUploadedFileName(audio, audioFile, dto != null ? dto.getFileName() : null);
+            applyFallbackDuration(audio, audioFile);
             if (oldAudioFileUrl != null && !Objects.equals(oldAudioFileUrl, newAudioFileUrl)) {
                 deleteStoredFile(oldAudioFileUrl);
             }
@@ -749,6 +752,22 @@ public class AudioService {
         if (suppliedFileName == null || suppliedFileName.isBlank()) {
             audio.setFileName(file.getOriginalFilename());
         }
+    }
+
+    /**
+     * The browser-side probe (media-metadata.js) is the primary duration source and
+     * arrives via {@code dto.getDuration()} → {@link #applyDto}. This only fills the gap
+     * when that didn't happen — e.g. a non-browser client, or a codec the browser
+     * couldn't read. Best-effort: unsupported formats leave duration untouched.
+     */
+    private void applyFallbackDuration(Audio audio, MultipartFile file) {
+        if (audio == null || file == null || file.isEmpty()) {
+            return;
+        }
+        if (audio.getDuration() != null && !audio.getDuration().isBlank()) {
+            return;
+        }
+        MediaDurationExtractor.extractDuration(file).ifPresent(audio::setDuration);
     }
 
     private void deleteStoredFile(String audioFileUrl) {

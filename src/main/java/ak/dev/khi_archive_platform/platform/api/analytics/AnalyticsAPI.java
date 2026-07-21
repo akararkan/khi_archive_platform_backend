@@ -9,6 +9,8 @@ import ak.dev.khi_archive_platform.platform.dto.analytics.MonthlyBucketDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.TeamOverviewDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserActivityDTO;
 import ak.dev.khi_archive_platform.platform.dto.analytics.UserSummaryDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.WeeklyBucketDTO;
+import ak.dev.khi_archive_platform.platform.dto.analytics.YearlyBucketDTO;
 import ak.dev.khi_archive_platform.platform.enums.AnalyticsAuditAction;
 import ak.dev.khi_archive_platform.platform.service.analytics.AnalyticsAuditService;
 import ak.dev.khi_archive_platform.platform.service.analytics.AnalyticsService;
@@ -25,6 +27,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -33,16 +37,22 @@ import java.util.Set;
 
 /**
  * Analytics endpoints. Backed by {@link AnalyticsService} which runs a single
- * UNION ALL across all seven {@code *_audit_logs} tables; every endpoint also
- * writes one row to {@code analytics_audit_logs} via {@link AnalyticsAuditService}.
+ * UNION ALL across the entity {@code *_audit_logs} tables plus
+ * {@code user_audit_logs}; every endpoint also writes one row to
+ * {@code analytics_audit_logs} via {@link AnalyticsAuditService}.
  *
  * <p>Authorisation: the whole controller is gated on {@code ROLE_ADMIN}.
+ *
+ * <p>Live-inventory, visibility and maqam-teacher statistics live on the
+ * sibling controllers {@code InventoryAnalyticsAPI} and
+ * {@code MaqamAnalyticsAPI} (also under {@code /api/analytics}, ROLE_ADMIN).
  *
  * <p>Universal query parameters (accepted on every endpoint):
  * <ul>
  *   <li>{@code days} — window length (1-365, default 30) when {@code from/to} absent</li>
  *   <li>{@code from} / {@code to} — explicit ISO-8601 instants</li>
- *   <li>{@code entities} — CSV: audio,video,image,text,project,category,person</li>
+ *   <li>{@code entities} — CSV: audio,video,image,text,project,category,person,
+ *       maqam,physical_media,user</li>
  *   <li>{@code actions} — CSV: CREATE,READ,SEARCH,UPDATE,DELETE,REMOVE,RESTORE,PURGE
  *       (LIST is intentionally never counted — page-load noise, not work).
  *       Use {@code GET /api/analytics/actions/catalog} for the UI-facing
@@ -66,6 +76,12 @@ public class AnalyticsAPI {
     /** The /monthly endpoint defaults to a year so the UI shows ~12 buckets
      *  by default. The universal {@code days} param still wins if supplied. */
     private static final int DEFAULT_MONTHLY_WINDOW_DAYS = 365;
+    /** The /weekly endpoint defaults to ~12 weeks so the chart isn't empty. */
+    private static final int DEFAULT_WEEKLY_WINDOW_DAYS = 84;
+    /** The /yearly endpoint defaults to a 5-year window. Set as an explicit
+     *  {@code from} (not via {@code days}) so it bypasses the service's 365-day
+     *  cap on the {@code days} param. */
+    private static final int DEFAULT_YEARLY_WINDOW_YEARS = 5;
 
     private final AnalyticsService analyticsService;
     private final AnalyticsAuditService auditService;
@@ -265,6 +281,73 @@ public class AnalyticsAPI {
         List<MonthlyBucketDTO> body = analyticsService.getMonthly(filter);
         auditService.record(AnalyticsAuditAction.VIEW_MONTHLY, filter.toCacheKey(), auth, request,
                 "Monthly breakdown (rows=" + body.size() + ")");
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Per-ISO-week buckets — the "weekly statistics of user work" view. Weeks
+     * are Monday-anchored (Postgres {@code DATE_TRUNC('week')}). Defaults to a
+     * ~12-week window when neither {@code days} nor {@code from/to} is supplied.
+     */
+    @GetMapping("/weekly")
+    public ResponseEntity<List<WeeklyBucketDTO>> weekly(
+            @RequestParam(value = "days",        required = false) Integer days,
+            @RequestParam(value = "from",        required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(value = "to",          required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(value = "entities",    required = false) String entities,
+            @RequestParam(value = "actions",     required = false) String actions,
+            @RequestParam(value = "actor",       required = false) String actor,
+            @RequestParam(value = "actorPattern",required = false) String actorPattern,
+            @RequestParam(value = "entityCode",  required = false) String entityCode,
+            @RequestParam(value = "q",           required = false) String q,
+            Authentication auth,
+            HttpServletRequest request) {
+        Integer effectiveDays = days;
+        if (effectiveDays == null && from == null && to == null) {
+            effectiveDays = DEFAULT_WEEKLY_WINDOW_DAYS;
+        }
+        AnalyticsFilter filter = build(effectiveDays, from, to, entities, actions, actor, actorPattern, entityCode, q);
+        List<WeeklyBucketDTO> body = analyticsService.getWeekly(filter);
+        auditService.record(AnalyticsAuditAction.VIEW_WEEKLY, filter.toCacheKey(), auth, request,
+                "Weekly breakdown (rows=" + body.size() + ")");
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * Per-calendar-year buckets — the "yearly statistics of user work" view.
+     * Defaults to a 5-year window (set as an explicit {@code from}) when neither
+     * {@code days} nor {@code from/to} is supplied, so multi-year history shows
+     * out of the box. Note the {@code days} param is still capped at 365 by the
+     * service; for a longer explicit range pass {@code from}/{@code to}.
+     */
+    @GetMapping("/yearly")
+    public ResponseEntity<List<YearlyBucketDTO>> yearly(
+            @RequestParam(value = "days",        required = false) Integer days,
+            @RequestParam(value = "from",        required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
+            @RequestParam(value = "to",          required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
+            @RequestParam(value = "entities",    required = false) String entities,
+            @RequestParam(value = "actions",     required = false) String actions,
+            @RequestParam(value = "actor",       required = false) String actor,
+            @RequestParam(value = "actorPattern",required = false) String actorPattern,
+            @RequestParam(value = "entityCode",  required = false) String entityCode,
+            @RequestParam(value = "q",           required = false) String q,
+            Authentication auth,
+            HttpServletRequest request) {
+        Instant effectiveFrom = from;
+        Instant effectiveTo = to;
+        if (days == null && from == null && to == null) {
+            effectiveTo = Instant.now();
+            // Anchor to Jan 1 of (currentYear - 4) so the window covers exactly
+            // DEFAULT_YEARLY_WINDOW_YEARS whole calendar-year buckets, not a
+            // rolling 5*365 days (which would spill into a 6th partial year).
+            int currentYear = effectiveTo.atZone(ZoneOffset.UTC).getYear();
+            effectiveFrom = LocalDate.of(currentYear - (DEFAULT_YEARLY_WINDOW_YEARS - 1), 1, 1)
+                    .atStartOfDay(ZoneOffset.UTC).toInstant();
+        }
+        AnalyticsFilter filter = build(days, effectiveFrom, effectiveTo, entities, actions, actor, actorPattern, entityCode, q);
+        List<YearlyBucketDTO> body = analyticsService.getYearly(filter);
+        auditService.record(AnalyticsAuditAction.VIEW_YEARLY, filter.toCacheKey(), auth, request,
+                "Yearly breakdown (rows=" + body.size() + ")");
         return ResponseEntity.ok(body);
     }
 
