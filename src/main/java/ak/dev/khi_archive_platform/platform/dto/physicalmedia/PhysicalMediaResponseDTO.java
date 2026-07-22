@@ -28,9 +28,9 @@ public class PhysicalMediaResponseDTO {
     private String physicalMediaType;
     private String mediaCategory;
     private String title;
-    private String subType;
+    private String sizeGB;
     private String physicalLabel;
-    private String size;
+    private String physicalSize;
     private String content;
     private String archiveDepNote;
 

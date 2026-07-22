@@ -31,6 +31,12 @@ public class PhysicalMediaCreateRequestDTO {
     @JsonAlias({"No.", "no"})
     private Integer rowNumber;
 
+    /** Per-type sequence ("Number" in the sheet). <b>Ignored on manual
+     *  {@code POST /api/physical-media}</b> — the server always assigns the
+     *  next value for the chosen {@code physicalMediaType}, so the create form
+     *  must not send it. Only the Excel importer honours a supplied value so it
+     *  can round-trip the sheet. Preview the value the server will assign via
+     *  {@code GET /api/physical-media/next-number?type=<physicalMediaType>}. */
     @JsonAlias({"Number", "number"})
     private Integer inventoryNumber;
 
@@ -45,17 +51,20 @@ public class PhysicalMediaCreateRequestDTO {
     @JsonAlias({"ناوی بابەت (Title)", "Title"})
     private String title;
 
+    /** Digital file size in gigabytes — free text (e.g. {@code 4.7},
+     *  {@code 700 MB}). Repurposed from the retired sub-type column. */
     @Size(max = 200)
-    @JsonAlias({"جۆر(Type)", "Type"})
-    private String subType;
+    @JsonAlias({"Size GB", "Size in GB", "Size (GB)", "sizeGb", "size_gb"})
+    private String sizeGB;
 
     @Size(max = 200)
     @JsonAlias({"کۆد (Physical Label)", "Physical Label"})
     private String physicalLabel;
 
+    /** Material size of the artefact (e.g. big / medium / normal / small). */
     @Size(max = 200)
-    @JsonAlias({"قەبارە (Size)", "Size"})
-    private String size;
+    @JsonAlias({"قەبارە (Physical Size)", "قەبارە (Size)", "Physical Size", "Size"})
+    private String physicalSize;
 
     @JsonAlias({"ناوەڕۆک (Content)", "Content"})
     private String content;

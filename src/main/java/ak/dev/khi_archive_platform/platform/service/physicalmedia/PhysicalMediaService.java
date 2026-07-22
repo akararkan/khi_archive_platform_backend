@@ -67,13 +67,15 @@ public class PhysicalMediaService {
         entity.setCreatedBy(actorName(auth));
         entity.setUpdatedBy(actorName(auth));
         mapper.applyCreate(entity, dto);
-        // Per-type sequence: assign Number = max(Number) + 1 for this media
-        // type when the caller didn't supply one. Lock keyed by type so two
-        // concurrent inserts on "VHS Cassette" serialise without blocking
-        // inserts on other types.
-        if (entity.getInventoryNumber() == null && entity.getPhysicalMediaType() != null) {
-            entity.setInventoryNumber(nextInventoryNumber(entity.getPhysicalMediaType()));
-        }
+        // Per-type sequence: the inventory Number is ALWAYS server-assigned on
+        // manual create — max(Number)+1 for this media type — so the frontend
+        // never sends it and two artefacts of the same type can't collide.
+        // Any value the client happened to include is deliberately ignored
+        // here; only the Excel importer round-trips the sheet's own Number.
+        // physicalMediaType is guaranteed non-blank by validateRequiredOnCreate
+        // above; the lock is keyed by type so concurrent inserts on the same
+        // type serialise while different types stay parallel.
+        entity.setInventoryNumber(nextInventoryNumber(entity.getPhysicalMediaType()));
 
         PhysicalMedia saved = repository.save(entity);
         auditService.record(saved, PhysicalMediaAuditAction.CREATE, auth, request,

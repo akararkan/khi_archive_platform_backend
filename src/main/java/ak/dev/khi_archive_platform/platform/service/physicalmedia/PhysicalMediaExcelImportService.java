@@ -72,12 +72,15 @@ public class PhysicalMediaExcelImportService {
         bind("Media Category", "mediaCategory");
         bind("ناوی بابەت (Title)", "title");
         bind("Title", "title");
-        bind("جۆر(Type)", "subType");
-        bind("Type", "subType");
+        bind("Size GB", "sizeGB");
+        bind("Size in GB", "sizeGB");
+        bind("Size (GB)", "sizeGB");
         bind("کۆد (Physical Label)", "physicalLabel");
         bind("Physical Label", "physicalLabel");
-        bind("قەبارە (Size)", "size");
-        bind("Size", "size");
+        bind("قەبارە (Physical Size)", "physicalSize");
+        bind("قەبارە (Size)", "physicalSize");
+        bind("Physical Size", "physicalSize");
+        bind("Size", "physicalSize");
         bind("ناوەڕۆک (Content)", "content");
         bind("Content", "content");
         bind("تێبینی بەشی ئارشیڤ Archive Dep Note", "archiveDepNote");
@@ -307,9 +310,9 @@ public class PhysicalMediaExcelImportService {
             case "physicalMediaType" -> dto.setPhysicalMediaType(textOf(cell));
             case "mediaCategory" -> dto.setMediaCategory(textOf(cell));
             case "title" -> dto.setTitle(textOf(cell));
-            case "subType" -> dto.setSubType(textOf(cell));
+            case "sizeGB" -> dto.setSizeGB(textOf(cell));
             case "physicalLabel" -> dto.setPhysicalLabel(textOf(cell));
-            case "size" -> dto.setSize(textOf(cell));
+            case "physicalSize" -> dto.setPhysicalSize(textOf(cell));
             case "content" -> dto.setContent(textOf(cell));
             case "archiveDepNote" -> dto.setArchiveDepNote(textOf(cell));
             case "digitization" -> {
@@ -435,9 +438,9 @@ public class PhysicalMediaExcelImportService {
         out.setPhysicalMediaType(original.getPhysicalMediaType());
         out.setMediaCategory(original.getMediaCategory());
         out.setTitle(original.getTitle());
-        out.setSubType(original.getSubType());
+        out.setSizeGB(original.getSizeGB());
         out.setPhysicalLabel(original.getPhysicalLabel());
-        out.setSize(original.getSize());
+        out.setPhysicalSize(original.getPhysicalSize());
         out.setContent(original.getContent());
         // Annotate so staff can find it via the listing and recognise the
         // row was imported as a fallback.

@@ -34,13 +34,13 @@ public class PhysicalMediaUpdateRequestDTO {
     private String title;
 
     @Size(max = 200)
-    private String subType;
+    private String sizeGB;
 
     @Size(max = 200)
     private String physicalLabel;
 
     @Size(max = 200)
-    private String size;
+    private String physicalSize;
 
     private String content;
 

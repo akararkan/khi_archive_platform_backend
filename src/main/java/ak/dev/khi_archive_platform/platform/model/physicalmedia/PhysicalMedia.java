@@ -81,9 +81,9 @@ public class PhysicalMedia {
     /** {@code Number} — <b>per-media-type contiguous counter</b>. Every
      *  physical media type carries its own 1..N sequence (Audio Cassette
      *  1..1893, VHS Cassette 1..55, …). When the importer round-trips the
-     *  sheet the original value is preserved; when an employee creates a
-     *  new row without supplying one, the service mints
-     *  {@code max(Number)+1} for that media type. */
+     *  sheet the original value is preserved; on a manual create the service
+     *  <b>always</b> mints {@code max(Number)+1} for that media type and
+     *  ignores any client-supplied value. */
     @Column(name = "inventory_number")
     private Integer inventoryNumber;
 
@@ -99,18 +99,23 @@ public class PhysicalMedia {
     @Column(name = "title", columnDefinition = "TEXT")
     private String title;
 
-    /** {@code جۆر(Type)} — sub-type within the category. */
-    @Column(name = "sub_type", length = 200)
-    private String subType;
+    /** {@code Size GB} — digital file size in gigabytes, stored as free text
+     *  (e.g. {@code 4.7}, {@code 4.7 GB}, {@code 700 MB}). Repurposed from the
+     *  retired {@code sub_type} column; distinct from {@link #physicalSize}. */
+    @Column(name = "size_gb", length = 200)
+    private String sizeGB;
 
     /** {@code کۆد (Physical Label)} — physical sticker/label on the artefact.
      *  Not globally unique — only meaningful within a media type. */
     @Column(name = "physical_label", length = 200)
     private String physicalLabel;
 
-    /** {@code قەبارە (Size)} — physical size / capacity descriptor. */
-    @Column(name = "size", length = 200)
-    private String size;
+    /** {@code قەبارە (Physical Size)} — material size of the artefact
+     *  (e.g. big / medium / normal / small). Distinct from {@link #sizeGB},
+     *  the digital file size. Backed by the {@code physical_size} column,
+     *  migrated once from the legacy {@code size} column. */
+    @Column(name = "physical_size", length = 200)
+    private String physicalSize;
 
     /** {@code ناوەڕۆک (Content)} — free-text content description. */
     @Column(name = "content", columnDefinition = "TEXT")

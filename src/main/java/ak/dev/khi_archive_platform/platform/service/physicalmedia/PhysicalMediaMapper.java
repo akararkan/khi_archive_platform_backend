@@ -36,9 +36,9 @@ public class PhysicalMediaMapper {
                 .physicalMediaType(e.getPhysicalMediaType())
                 .mediaCategory(e.getMediaCategory())
                 .title(e.getTitle())
-                .subType(e.getSubType())
+                .sizeGB(e.getSizeGB())
                 .physicalLabel(e.getPhysicalLabel())
-                .size(e.getSize())
+                .physicalSize(e.getPhysicalSize())
                 .content(e.getContent())
                 .archiveDepNote(e.getArchiveDepNote())
                 .digitization(e.getDigitization())
@@ -81,9 +81,9 @@ public class PhysicalMediaMapper {
         e.setPhysicalMediaType(trimOrNull(dto.getPhysicalMediaType()));
         e.setMediaCategory(trimOrNull(dto.getMediaCategory()));
         e.setTitle(trimOrNull(dto.getTitle()));
-        e.setSubType(trimOrNull(dto.getSubType()));
+        e.setSizeGB(trimOrNull(dto.getSizeGB()));
         e.setPhysicalLabel(trimOrNull(dto.getPhysicalLabel()));
-        e.setSize(trimOrNull(dto.getSize()));
+        e.setPhysicalSize(trimOrNull(dto.getPhysicalSize()));
         e.setContent(trimOrNull(dto.getContent()));
         e.setArchiveDepNote(trimOrNull(dto.getArchiveDepNote()));
         e.setDigitization(resolveDigitization(dto.getDigitization(), dto.getDigitizationCode()));
@@ -117,9 +117,9 @@ public class PhysicalMediaMapper {
         if (dto.getPhysicalMediaType() != null){ e.setPhysicalMediaType(trimOrNull(dto.getPhysicalMediaType())); touched.add("physicalMediaType"); }
         if (dto.getMediaCategory() != null)    { e.setMediaCategory(trimOrNull(dto.getMediaCategory())); touched.add("mediaCategory"); }
         if (dto.getTitle() != null)            { e.setTitle(trimOrNull(dto.getTitle())); touched.add("title"); }
-        if (dto.getSubType() != null)          { e.setSubType(trimOrNull(dto.getSubType())); touched.add("subType"); }
+        if (dto.getSizeGB() != null)           { e.setSizeGB(trimOrNull(dto.getSizeGB())); touched.add("sizeGB"); }
         if (dto.getPhysicalLabel() != null)    { e.setPhysicalLabel(trimOrNull(dto.getPhysicalLabel())); touched.add("physicalLabel"); }
-        if (dto.getSize() != null)             { e.setSize(trimOrNull(dto.getSize())); touched.add("size"); }
+        if (dto.getPhysicalSize() != null)     { e.setPhysicalSize(trimOrNull(dto.getPhysicalSize())); touched.add("physicalSize"); }
         if (dto.getContent() != null)          { e.setContent(trimOrNull(dto.getContent())); touched.add("content"); }
         if (dto.getArchiveDepNote() != null)   { e.setArchiveDepNote(trimOrNull(dto.getArchiveDepNote())); touched.add("archiveDepNote"); }
         if (dto.getDigitization() != null || dto.getDigitizationCode() != null) {

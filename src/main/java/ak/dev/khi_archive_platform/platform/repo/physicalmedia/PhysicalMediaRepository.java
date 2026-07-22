@@ -51,7 +51,7 @@ public interface PhysicalMediaRepository extends JpaRepository<PhysicalMedia, Lo
                  OR LOWER(COALESCE(p.physical_media_type, '')) LIKE '%' || LOWER(:q) || '%'
                  OR LOWER(COALESCE(p.media_category, ''))      LIKE '%' || LOWER(:q) || '%'
                  OR LOWER(COALESCE(p.title, ''))               LIKE '%' || LOWER(:q) || '%'
-                 OR LOWER(COALESCE(p.sub_type, ''))            LIKE '%' || LOWER(:q) || '%'
+                 OR LOWER(COALESCE(p.physical_size, ''))       LIKE '%' || LOWER(:q) || '%'
                  OR LOWER(COALESCE(p.content, ''))             LIKE '%' || LOWER(:q) || '%'
                  OR LOWER(COALESCE(p.owner, ''))               LIKE '%' || LOWER(:q) || '%'
                  OR LOWER(COALESCE(p.tags, ''))                LIKE '%' || LOWER(:q) || '%'

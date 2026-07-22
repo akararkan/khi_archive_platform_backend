@@ -22,9 +22,9 @@ imports of the source sheet.
 | `Physical Media Type`                          | `physicalMediaType`    | `physical_media_type`    | varchar(200), indexed                                              |
 | `جۆری بابەت(Media Category)`                  | `mediaCategory`        | `media_category`         | varchar(200), indexed                                              |
 | `ناوی بابەت (Title)`                          | `title`                | `title`                  | TEXT                                                               |
-| `جۆر(Type)`                                    | `subType`              | `sub_type`               | varchar(200)                                                       |
+| `Size GB`                                      | `sizeGB`               | `size_gb`                | varchar(200) — digital file size in GB, free text (repurposed from the retired `sub_type` column) |
 | `کۆد (Physical Label)`                         | `physicalLabel`        | `physical_label`         | varchar(200), indexed                                              |
-| `قەبارە (Size)`                                | `size`                 | `size`                   | varchar(200)                                                       |
+| `قەبارە (Physical Size)`                       | `physicalSize`         | `physical_size`          | varchar(200) — material size (big/medium/normal/small); migrated from the legacy `size` column |
 | `ناوەڕۆک (Content)`                            | `content`              | `content`                | TEXT                                                               |
 | `تێبینی بەشی ئارشیڤ Archive Dep Note`         | `archiveDepNote`       | `archive_dep_note`       | TEXT                                                               |
 | `دیجیتایز Digitization`                        | `digitization`         | `digitization`           | `DigitizationStatus` enum, indexed (see §3)                        |
