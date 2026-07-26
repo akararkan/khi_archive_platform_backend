@@ -140,7 +140,17 @@ public enum Permission {
     // edit a type's nine technical defaults, delete an unused type. Held
     // by ADMIN; not seeded into the EMPLOYEE default set — the catalog is
     // system configuration, not day-to-day work.
-    PHYSICAL_MEDIA_TYPE_MANAGE("physical_media:type_manage");
+    PHYSICAL_MEDIA_TYPE_MANAGE("physical_media:type_manage"),
+
+    // ── Khi Logo (site-branding image, single uploaded record) ─────────
+    // Four-action CRUD. Not seeded into EMPLOYEE_DEFAULT_PERMISSIONS or
+    // TEACHER_DEFAULT_PERMISSIONS — the logo is site branding/configuration,
+    // so only ADMIN manages it by default; an admin can still grant these
+    // individually via the per-user permission-grant endpoint.
+    KHI_LOGO_READ("khi_logo:read"),
+    KHI_LOGO_CREATE("khi_logo:create"),
+    KHI_LOGO_UPDATE("khi_logo:update"),
+    KHI_LOGO_DELETE("khi_logo:delete");
 
     private final String permission;
 }

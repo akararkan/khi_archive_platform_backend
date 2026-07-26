@@ -369,6 +369,16 @@ public class ApiExceptionHandler {
                 request, null);
     }
 
+    @ExceptionHandler(KhiLogoNotFoundException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleKhiLogoNotFound(KhiLogoNotFoundException ex,
+                                                                    HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, ErrorCode.KHI_LOGO_NOT_FOUND, ErrorCategory.NOT_FOUND,
+                ex.getMessage(),
+                "Confirm the khi logo id.",
+                request, null);
+    }
+
     @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
     @SuppressWarnings("unused")
     public ResponseEntity<ApiErrorResponse> handleNotFound(Exception ex, HttpServletRequest request) {
