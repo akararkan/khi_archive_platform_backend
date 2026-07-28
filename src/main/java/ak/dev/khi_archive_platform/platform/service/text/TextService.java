@@ -561,7 +561,9 @@ public class TextService {
                         ? project.getCategories().stream().map(c -> c.getCategoryCode()).toList()
                         : null)
                 .textFileUrl("/api/text/" + text.getTextCode() + "/read")
-                .coverImageUrl("/api/text/" + text.getTextCode() + "/cover")
+                .coverImageUrl(text.getCoverImageUrl() == null || text.getCoverImageUrl().isBlank()
+                        ? null
+                        : "/api/text/" + text.getTextCode() + "/cover")
                 // File & Path
                 .fileName(text.getFileName())
                 .volumeName(text.getVolumeName())

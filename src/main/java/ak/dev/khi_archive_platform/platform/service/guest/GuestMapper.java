@@ -297,7 +297,11 @@ final class GuestMapper {
                 .owner(t.getOwner())
                 .publisher(t.getPublisher())
                 .textFileUrl("/api/guest/text/" + t.getTextCode() + "/read")
-                .coverImageUrl("/api/guest/text/" + t.getTextCode() + "/cover")
+                // Only advertise the cover proxy when a cover actually exists —
+                // otherwise the frontend renders an <img> that is guaranteed to 404.
+                .coverImageUrl(t.getCoverImageUrl() == null || t.getCoverImageUrl().isBlank()
+                        ? null
+                        : "/api/guest/text/" + t.getTextCode() + "/cover")
                 .build();
     }
 

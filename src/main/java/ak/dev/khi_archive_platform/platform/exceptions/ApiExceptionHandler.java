@@ -34,6 +34,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -686,6 +687,38 @@ public class ApiExceptionHandler {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.STORAGE_ERROR, ErrorCategory.STORAGE,
                 "Storage I/O failure while handling the request.",
                 "Retry shortly; if the problem persists, share the traceId with support.",
+                request, null);
+    }
+
+    /**
+     * Stream/proxy controllers (audio, video, image, text) signal deliberate
+     * statuses — mostly 404 — by throwing {@link ResponseStatusException}.
+     * Without this handler the {@code Exception.class} catch-all below would
+     * rewrite every one of them into an opaque 500.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    @SuppressWarnings("unused")
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException ex,
+                                                                  HttpServletRequest request) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        if (status == null) status = HttpStatus.INTERNAL_SERVER_ERROR;
+
+        String message = ex.getReason() != null && !ex.getReason().isBlank()
+                ? ex.getReason()
+                : status.getReasonPhrase();
+
+        if (status == HttpStatus.NOT_FOUND) {
+            return build(status, ErrorCode.NOT_FOUND, ErrorCategory.NOT_FOUND,
+                    message, "Check the identifier and try again.", request, null);
+        }
+        if (status.is4xxClientError()) {
+            return build(status, ErrorCode.BAD_REQUEST, ErrorCategory.BAD_REQUEST,
+                    message, "Review the request and try again.", request, null);
+        }
+        log.error("ResponseStatusException ({}) on {}: {}",
+                status.value(), request.getRequestURI(), message, ex);
+        return build(status, ErrorCode.INTERNAL_SERVER_ERROR, ErrorCategory.SERVER_ERROR,
+                message, "Retry shortly; if the problem persists, share the traceId with support.",
                 request, null);
     }
 
