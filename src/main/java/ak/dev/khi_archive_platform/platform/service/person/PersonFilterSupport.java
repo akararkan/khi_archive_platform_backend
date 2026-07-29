@@ -2,6 +2,8 @@ package ak.dev.khi_archive_platform.platform.service.person;
 
 import ak.dev.khi_archive_platform.platform.dto.person.PersonFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.person.PersonResponseDTO;
+import ak.dev.khi_archive_platform.platform.service.common.ArchiveTime;
+import ak.dev.khi_archive_platform.platform.service.common.KurdishText;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -104,11 +106,15 @@ final class PersonFilterSupport {
 
     // ─── Predicates ───────────────────────────────────────────────────────────────
 
-    private static boolean withinInstantRange(Instant value, Instant from, Instant to) {
-        if (from == null && to == null) return true;
+    /** Backend-owned timezone: YYYY-MM-DD range against an Instant column,
+     *  resolved to archive-zone (Asia/Baghdad) day bounds via {@link ArchiveTime}. */
+    private static boolean withinInstantRange(Instant value, LocalDate from, LocalDate to) {
+        Instant fromI = ArchiveTime.startOfDay(from);
+        Instant toI = ArchiveTime.endOfDay(to);
+        if (fromI == null && toI == null) return true;
         if (value == null) return false;
-        if (from != null && value.isBefore(from)) return false;
-        if (to != null && value.isAfter(to)) return false;
+        if (fromI != null && value.isBefore(fromI)) return false;
+        if (toI != null && value.isAfter(toI)) return false;
         return true;
     }
 
@@ -122,7 +128,7 @@ final class PersonFilterSupport {
 
     private static boolean containsLower(String value, String needleLower) {
         if (value == null) return false;
-        return value.toLowerCase(Locale.ROOT).contains(needleLower);
+        return KurdishText.normalize(value).contains(needleLower);
     }
 
     /**
@@ -169,8 +175,8 @@ final class PersonFilterSupport {
 
     private static String lower(String s) {
         if (s == null) return null;
-        String t = s.trim();
-        return t.isEmpty() ? null : t.toLowerCase(Locale.ROOT);
+        String t = KurdishText.normalize(s);
+        return t.isEmpty() ? null : t;
     }
 
     // ─── Sort ─────────────────────────────────────────────────────────────────────

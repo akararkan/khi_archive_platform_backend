@@ -2,8 +2,11 @@ package ak.dev.khi_archive_platform.platform.service.audio;
 
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.audio.AudioResponseDTO;
+import ak.dev.khi_archive_platform.platform.service.common.ArchiveTime;
+import ak.dev.khi_archive_platform.platform.service.common.KurdishText;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -177,11 +180,19 @@ final class AudioFilterSupport {
 
     // ─── Predicates ───────────────────────────────────────────────────────────────
 
-    static boolean withinInstantRange(Instant value, Instant from, Instant to) {
-        if (from == null && to == null) return true;
+    /**
+     * Backend-owned timezone: a {@code YYYY-MM-DD} range against an Instant
+     * column. The {@code from}/{@code to} days are resolved to their bounds in
+     * the archive zone (Asia/Baghdad) via {@link ArchiveTime}, so every client
+     * agrees without sending UTC offsets.
+     */
+    static boolean withinInstantRange(Instant value, LocalDate from, LocalDate to) {
+        Instant fromI = ArchiveTime.startOfDay(from);
+        Instant toI = ArchiveTime.endOfDay(to);
+        if (fromI == null && toI == null) return true;
         if (value == null) return false;
-        if (from != null && value.isBefore(from)) return false;
-        if (to != null && value.isAfter(to)) return false;
+        if (fromI != null && value.isBefore(fromI)) return false;
+        if (toI != null && value.isAfter(toI)) return false;
         return true;
     }
 
@@ -194,11 +205,11 @@ final class AudioFilterSupport {
     }
 
     static boolean equalsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).equals(needleLower);
+        return value != null && KurdishText.normalize(value).equals(needleLower);
     }
 
     static boolean containsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(needleLower);
+        return value != null && KurdishText.normalize(value).contains(needleLower);
     }
 
     /**
@@ -243,8 +254,8 @@ final class AudioFilterSupport {
 
     static String lower(String s) {
         if (s == null) return null;
-        String t = s.trim();
-        return t.isEmpty() ? null : t.toLowerCase(Locale.ROOT);
+        String t = KurdishText.normalize(s);
+        return t.isEmpty() ? null : t;
     }
 
     // ─── Sort ─────────────────────────────────────────────────────────────────────

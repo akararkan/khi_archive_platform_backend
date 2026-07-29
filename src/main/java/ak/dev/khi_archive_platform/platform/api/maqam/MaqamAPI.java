@@ -92,6 +92,18 @@ public class MaqamAPI {
         return ResponseEntity.ok(maqamService.search(q, limit == null ? 20 : limit, auth, request));
     }
 
+    /**
+     * Distinct maqam types voted across active records, most-common first —
+     * backs a real dropdown for the {@code maqamType} filter so the exact-match
+     * filter targets values that actually exist (avoids silent misses from
+     * free-text spelling drift in Kurdish).
+     */
+    @GetMapping("/maqam-types")
+    @PreAuthorize("hasAuthority('maqam:read')")
+    public ResponseEntity<List<String>> maqamTypes() {
+        return ResponseEntity.ok(maqamService.listDistinctMaqamTypes());
+    }
+
     @GetMapping("/{maqamCode}")
     @PreAuthorize("hasAuthority('maqam:read')")
     public ResponseEntity<MaqamResponseDTO> getOne(

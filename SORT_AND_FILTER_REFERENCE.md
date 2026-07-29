@@ -181,7 +181,12 @@ All keys map to a real column ⇒ eligible for the DB fast path.
 | Digitize date | `digitizeDate`, `digitized` | yes |
 | Created (audit) | `createdAt`, `created`, `added`, `dateAdded`, `date_added` | yes |
 | Updated (audit) | `updatedAt`, `updated`, `modified`, `dateModified`, `date_modified` | yes |
-| Digitization status | `digitization`, `digitizationCode` | **no** — ordered by the derived `0/1/2` code, so this sort runs in memory |
+| Digitization status | `digitization`, `digitizationCode` | **no** — in-memory only ¹ |
+
+¹ `digitization` orders by the derived `0/1/2` code, which has no backing
+column, so this is the one sort key that forces the whole request onto the
+in-memory path (a full-set scan) **even with no filters**. It is not a cheap
+single-page request the way every other key is.
 
 ### Project — `GET /api/project`
 No filter/sort params (pageable only).
@@ -200,35 +205,76 @@ The same operator families appear on every `*FilterParams`:
 - **Boolean** — `true` | `false`.
 - **Enum** — by name (case-insensitive) and/or numeric code.
 - **Numeric range** — inclusive `xxxMin` / `xxxMax`.
-- **Date range** — inclusive. `LocalDate` fields take `YYYY-MM-DD`; `Instant`
-  (audit) fields take ISO-8601 instants (`…T00:00:00Z`). Both ends inclusive.
+- **Date range** — inclusive on both ends, and **timezone is backend-owned
+  everywhere now**. Every date param on every entity — the audit ranges
+  (`created…`, `updated…`, `removed…`), the entity date fields (`dateCreated…`,
+  `datePublished…`, `dateModified…`, `dateCopyrighted…`, `printDate…`), Person's
+  `dob…`/`dod…`, Physical Media's `digitizeDate…`, and the merged `/api/items`
+  feed — takes a **bare `YYYY-MM-DD`**. Params backed by an `Instant`/timestamp
+  column have their day bounds resolved in the archive zone (`Asia/Baghdad`,
+  UTC+3) via `ArchiveTime` (`from` = start of day, `to` = inclusive end of day);
+  pure date columns (`dob`, `dod`, `digitizeDate`) compare as-is. Send
+  `createdFrom=2026-07-29&createdTo=2026-07-29` on any entity — no UTC offsets,
+  no client-side zone math, every client agrees.
+- **Free-text `q`** *(Maqam & Physical Media)* — case-insensitive substring
+  across the entity's key fields (and, for Maqam, its vote panel), combinable
+  with every filter and sort. Distinct from the ranked `/search` endpoint, which
+  ignores `*FilterParams`.
+
+**Script normalization (Kurdish / Arabic).** Every string **equals** and
+**contains** comparison above (including `q`) is matched on a canonical form
+(`KurdishText`), applied to *both* the stored value and your filter value — not
+a raw byte compare. It folds interchangeable codepoints (Arabic Yeh `ي` ↔
+Kurdish Yeh `ی`, Arabic Kaf `ك` ↔ Keheh `ک`), strips tatweel / joiners /
+diacritics / zero-width characters, collapses whitespace, and lower-cases Latin.
+So a `mediaCategory` / `physicalSize` / `maqamType` (or any text) filter matches
+regardless of which Yeh/Kaf codepoint or stray space was typed. It does **not**
+bridge genuine spelling differences (a missing or different letter) — use the
+distinct-values dropdown (`GET /api/maqam/maqam-types`) for that. Collection
+filters (tags/keywords/genres) rely on the on-save canonicaliser, not this pass.
 
 ---
 
 ## 4. Filter fields — Maqam & Physical Media (full)
 
 ### Maqam — `GET /api/maqam`  ·  auth `maqam:read`  ·  trash `GET /api/admin/maqam/trash` (`maqam:delete`)
+- **Free-text**: `q` — substring across `maqamCode`, `songName`, `producer`,
+  `archiveNote`, `audioFileName`, and the vote panel (voted maqam types, teacher
+  usernames/display names).
 - **Contains**: `songName`, `producer`, `maqamCode`, `archiveNote`,
   `audioFileName`, `createdBy`, `updatedBy`.
 - **Numeric range** (audio seconds): `durationSecondsMin`, `durationSecondsMax`.
-- **Date range** (instants): `createdFrom`/`createdTo`, `updatedFrom`/`updatedTo`.
+- **Date range** (`YYYY-MM-DD`, resolved in `Asia/Baghdad`):
+  `createdFrom`/`createdTo`, `updatedFrom`/`updatedTo`.
 - **Teacher-panel filters**:
   - `teacherUserId` — records that user id is on the panel of.
   - `teacherUsername` — contains, any panel member.
-  - `maqamType` — case-insensitive exact; any panel member voted it.
-  - `assignmentStatus` — `assigned` | `unassigned`.
-  - `voteStatus` — `none` (no vote cast) | `partial` (some assigned teachers
-    voted) | `full` (all voted).
+  - `maqamType` — case-insensitive exact; any panel member voted it. Populate a
+    dropdown from **`GET /api/maqam/maqam-types`** (distinct voted values,
+    most-common first) so the exact match targets values that actually exist.
+  - `assignmentStatus` — `assigned` (≥1 teacher on the panel) | `unassigned`.
+  - `voteStatus` — `none` | `partial` | `full`. A vote counts as cast once
+    `votedAt` is set. **A record with zero assigned teachers counts as `none`**
+    (it is *not* dropped), so `voteStatus=none` fully answers "what still needs
+    votes?". For *assigned-but-unvoted* only, combine
+    `assignmentStatus=assigned&voteStatus=none`.
+- **Trash adds** (accepted on every endpoint, meaningful only on
+  `/api/admin/maqam/trash`): `removedBy` (contains), `removedFrom`/`removedTo`
+  (`YYYY-MM-DD` range over `removedAt`, archive zone).
 
 Examples:
 ```
 GET /api/maqam?voteStatus=none&assignmentStatus=assigned
 GET /api/maqam?maqamType=Rast&sortBy=songName&sortDirection=asc
-GET /api/maqam?teacherUserId=42&durationSecondsMin=120&sortBy=duration&sortDirection=desc
+GET /api/maqam?q=layla&voteStatus=none&sortBy=duration&sortDirection=desc   # search + filter + sort together
+GET /api/maqam?createdFrom=2026-07-01&createdTo=2026-07-29                  # created in July, Baghdad time
 GET /api/maqam?sortBy=createdAt&sortDirection=desc          # sort-only → DB fast path (admin/employee)
 ```
 
 ### Physical Media — `GET /api/physical-media`  ·  auth `physical_media:read`  ·  trash `GET /api/admin/physical-media/trash` (`physical_media:delete`)
+- **Free-text**: `q` — substring across `pmCode`, `physicalLabel`,
+  `physicalMediaType`, `mediaCategory`, `title`, `physicalSize`, `content`,
+  `owner`, `tags`, `trackName`.
 - **Equals** (case-insensitive): `physicalMediaType`, `mediaCategory`,
   `physicalSize`, `extension`, `formatCodec`, `source` (`MANUAL` | `IMPORT`).
 - **Enum / boolean**: `digitization` (`NOT_DIGITIZED` | `DIGITIZED` |
@@ -241,14 +287,19 @@ GET /api/maqam?sortBy=createdAt&sortDirection=desc          # sort-only → DB f
 - **Numeric ranges**: `yearMin`/`yearMax`, `durationMinutesMin`/`durationMinutesMax`,
   `trackNumbersMin`/`trackNumbersMax`, `inventoryNumberMin`/`inventoryNumberMax`,
   `rowNumberMin`/`rowNumberMax`.
-- **Date ranges**: `digitizeDateFrom`/`digitizeDateTo` (`YYYY-MM-DD`),
-  `createdFrom`/`createdTo`, `updatedFrom`/`updatedTo` (instants).
+- **Date ranges** (all `YYYY-MM-DD`): `digitizeDateFrom`/`digitizeDateTo` (date
+  column, as-is); `createdFrom`/`createdTo`, `updatedFrom`/`updatedTo` (Instant
+  columns, day bounds resolved in `Asia/Baghdad`).
+- **Trash adds** (accepted on every endpoint, meaningful only on
+  `/api/admin/physical-media/trash`): `removedBy` (contains),
+  `removedFrom`/`removedTo` (`YYYY-MM-DD` range over `removedAt`, archive zone).
 
 Examples:
 ```
 GET /api/physical-media?mediaCategory=Video&yearMin=1980&yearMax=1999&sortBy=year&sortDirection=desc
 GET /api/physical-media?digitization=NOT_DIGITIZED&needToClear=true
-GET /api/physical-media?title=wedding&owner=kaka&sortBy=inventoryNumber
+GET /api/physical-media?q=wedding&digitization=NOT_DIGITIZED   # search + filter together
+GET /api/physical-media?createdFrom=2026-07-01&createdTo=2026-07-29  # created in July, Baghdad time
 GET /api/physical-media?sortBy=type                          # sort-only → DB fast path
 GET /api/physical-media?sortBy=digitization&sortDirection=asc # derived key → in-memory sort
 ```

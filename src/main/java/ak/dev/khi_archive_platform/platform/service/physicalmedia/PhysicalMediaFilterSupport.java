@@ -2,6 +2,8 @@ package ak.dev.khi_archive_platform.platform.service.physicalmedia;
 
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaResponseDTO;
+import ak.dev.khi_archive_platform.platform.service.common.ArchiveTime;
+import ak.dev.khi_archive_platform.platform.service.common.KurdishText;
 import ak.dev.khi_archive_platform.platform.service.common.SortSupport;
 import org.springframework.data.domain.Sort;
 
@@ -37,6 +39,7 @@ final class PhysicalMediaFilterSupport {
         }
 
         // ── Pre-normalize needles once ─────────────────────────────────────────
+        String q = lower(params.getQ());
         String physicalMediaType = lower(params.getPhysicalMediaType());
         String mediaCategory = lower(params.getMediaCategory());
         String physicalSize = lower(params.getPhysicalSize());
@@ -64,6 +67,7 @@ final class PhysicalMediaFilterSupport {
         String channelsOrResolution = lower(params.getChannelsOrResolution());
         String createdBy = lower(params.getCreatedBy());
         String updatedBy = lower(params.getUpdatedBy());
+        String removedBy = lower(params.getRemovedBy());
 
         // ── Linear scan ────────────────────────────────────────────────────────
         List<PhysicalMediaResponseDTO> filtered = new ArrayList<>(Math.min(source.size(), 256));
@@ -87,10 +91,18 @@ final class PhysicalMediaFilterSupport {
             if (!withinIntRange(p.getInventoryNumber(), params.getInventoryNumberMin(), params.getInventoryNumberMax())) continue;
             if (!withinIntRange(p.getRowNumber(), params.getRowNumberMin(), params.getRowNumberMax())) continue;
 
-            // Date ranges
+            // Date ranges — digitizeDate is a date column (compared as-is); the
+            // audit ranges are YYYY-MM-DD resolved to instants in the archive zone.
             if (!withinDateRange(p.getDigitizeDate(), params.getDigitizeDateFrom(), params.getDigitizeDateTo())) continue;
-            if (!withinInstantRange(p.getCreatedAt(), params.getCreatedFrom(), params.getCreatedTo())) continue;
-            if (!withinInstantRange(p.getUpdatedAt(), params.getUpdatedFrom(), params.getUpdatedTo())) continue;
+            if (!withinInstantRange(p.getCreatedAt(),
+                    ArchiveTime.startOfDay(params.getCreatedFrom()),
+                    ArchiveTime.endOfDay(params.getCreatedTo()))) continue;
+            if (!withinInstantRange(p.getUpdatedAt(),
+                    ArchiveTime.startOfDay(params.getUpdatedFrom()),
+                    ArchiveTime.endOfDay(params.getUpdatedTo()))) continue;
+            if (!withinInstantRange(p.getRemovedAt(),
+                    ArchiveTime.startOfDay(params.getRemovedFrom()),
+                    ArchiveTime.endOfDay(params.getRemovedTo()))) continue;
 
             // Categorical equals (case-insensitive)
             if (physicalMediaType != null && !equalsLower(p.getPhysicalMediaType(), physicalMediaType)) continue;
@@ -120,22 +132,49 @@ final class PhysicalMediaFilterSupport {
             if (channelsOrResolution != null && !containsLower(p.getChannelsOrResolution(), channelsOrResolution)) continue;
             if (createdBy != null && !containsLower(p.getCreatedBy(), createdBy)) continue;
             if (updatedBy != null && !containsLower(p.getUpdatedBy(), updatedBy)) continue;
+            if (removedBy != null && !containsLower(p.getRemovedBy(), removedBy)) continue;
+
+            // Free-text q — broad OR across searchable fields; last.
+            if (q != null && !matchesQuery(p, q)) continue;
 
             filtered.add(p);
         }
 
+        // Always finish on a deterministic total order (chosen key, then id ASC
+        // as the tiebreaker) so paging is stable across requests — mirrors the
+        // ", id ASC" that SortSupport appends on the DB fast path.
         Comparator<PhysicalMediaResponseDTO> comparator = comparatorFor(params.getSortBy());
         if (comparator != null) {
             if ("desc".equalsIgnoreCase(params.getSortDirection())) {
                 comparator = comparator.reversed();
             }
-            filtered.sort(comparator);
+            comparator = comparator.thenComparing(
+                    PhysicalMediaResponseDTO::getId, Comparator.nullsLast(Long::compareTo));
+        } else {
+            comparator = Comparator.comparing(
+                    PhysicalMediaResponseDTO::getId, Comparator.nullsLast(Long::compareTo));
         }
+        filtered.sort(comparator);
 
         return filtered;
     }
 
     // ─── Predicates ───────────────────────────────────────────────────────────────
+
+    /** Case-insensitive substring across the row's searchable fields — powers
+     *  the {@code q} free-text filter (mirrors the {@code /search} field set). */
+    private static boolean matchesQuery(PhysicalMediaResponseDTO p, String qLower) {
+        return containsLower(p.getPmCode(), qLower)
+                || containsLower(p.getPhysicalLabel(), qLower)
+                || containsLower(p.getPhysicalMediaType(), qLower)
+                || containsLower(p.getMediaCategory(), qLower)
+                || containsLower(p.getTitle(), qLower)
+                || containsLower(p.getPhysicalSize(), qLower)
+                || containsLower(p.getContent(), qLower)
+                || containsLower(p.getOwner(), qLower)
+                || containsLower(p.getTags(), qLower)
+                || containsLower(p.getTrackName(), qLower);
+    }
 
     static boolean withinInstantRange(Instant value, Instant from, Instant to) {
         if (from == null && to == null) return true;
@@ -162,17 +201,17 @@ final class PhysicalMediaFilterSupport {
     }
 
     static boolean equalsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).equals(needleLower);
+        return value != null && KurdishText.normalize(value).equals(needleLower);
     }
 
     static boolean containsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(needleLower);
+        return value != null && KurdishText.normalize(value).contains(needleLower);
     }
 
     static String lower(String s) {
         if (s == null) return null;
-        String t = s.trim();
-        return t.isEmpty() ? null : t.toLowerCase(Locale.ROOT);
+        String t = KurdishText.normalize(s);
+        return t.isEmpty() ? null : t;
     }
 
     // ─── Sort ─────────────────────────────────────────────────────────────────────

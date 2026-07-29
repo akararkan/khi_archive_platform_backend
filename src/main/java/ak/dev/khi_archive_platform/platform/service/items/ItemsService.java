@@ -5,6 +5,7 @@ import ak.dev.khi_archive_platform.platform.dto.image.ImageResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.items.ItemDTO;
 import ak.dev.khi_archive_platform.platform.dto.items.ItemFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.items.ItemType;
+import ak.dev.khi_archive_platform.platform.service.common.ArchiveTime;
 import ak.dev.khi_archive_platform.platform.dto.text.TextResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.video.VideoResponseDTO;
 import ak.dev.khi_archive_platform.platform.service.audio.AudioReadCache;
@@ -19,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -491,11 +493,15 @@ public class ItemsService {
         return false;
     }
 
-    private static boolean withinRange(Instant value, Instant from, Instant to) {
-        if (from == null && to == null) return true;
+    /** Backend-owned timezone: YYYY-MM-DD range against an Instant column,
+     *  resolved to archive-zone (Asia/Baghdad) day bounds via {@link ArchiveTime}. */
+    private static boolean withinRange(Instant value, LocalDate from, LocalDate to) {
+        Instant fromI = ArchiveTime.startOfDay(from);
+        Instant toI = ArchiveTime.endOfDay(to);
+        if (fromI == null && toI == null) return true;
         if (value == null) return false;
-        if (from != null && value.isBefore(from)) return false;
-        if (to != null && value.isAfter(to)) return false;
+        if (fromI != null && value.isBefore(fromI)) return false;
+        if (toI != null && value.isAfter(toI)) return false;
         return true;
     }
 

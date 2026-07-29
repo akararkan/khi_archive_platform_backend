@@ -3,6 +3,8 @@ package ak.dev.khi_archive_platform.platform.service.maqam;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherVoteDTO;
+import ak.dev.khi_archive_platform.platform.service.common.ArchiveTime;
+import ak.dev.khi_archive_platform.platform.service.common.KurdishText;
 import ak.dev.khi_archive_platform.platform.service.common.SortSupport;
 import org.springframework.data.domain.Sort;
 
@@ -40,6 +42,7 @@ final class MaqamFilterSupport {
         }
 
         // ── Pre-normalize needles once ─────────────────────────────────────────
+        String q = lower(params.getQ());
         String songName = lower(params.getSongName());
         String producer = lower(params.getProducer());
         String maqamCode = lower(params.getMaqamCode());
@@ -47,6 +50,7 @@ final class MaqamFilterSupport {
         String audioFileName = lower(params.getAudioFileName());
         String createdBy = lower(params.getCreatedBy());
         String updatedBy = lower(params.getUpdatedBy());
+        String removedBy = lower(params.getRemovedBy());
         String teacherUsername = lower(params.getTeacherUsername());
         String maqamType = lower(params.getMaqamType());
         String assignmentStatus = lower(params.getAssignmentStatus());
@@ -61,9 +65,16 @@ final class MaqamFilterSupport {
             if (!withinLongRange(m.getAudioDurationSeconds(),
                     params.getDurationSecondsMin(), params.getDurationSecondsMax())) continue;
 
-            // Date ranges
-            if (!withinInstantRange(m.getCreatedAt(), params.getCreatedFrom(), params.getCreatedTo())) continue;
-            if (!withinInstantRange(m.getUpdatedAt(), params.getUpdatedFrom(), params.getUpdatedTo())) continue;
+            // Date ranges — YYYY-MM-DD bounds resolved to instants in the archive zone
+            if (!withinInstantRange(m.getCreatedAt(),
+                    ArchiveTime.startOfDay(params.getCreatedFrom()),
+                    ArchiveTime.endOfDay(params.getCreatedTo()))) continue;
+            if (!withinInstantRange(m.getUpdatedAt(),
+                    ArchiveTime.startOfDay(params.getUpdatedFrom()),
+                    ArchiveTime.endOfDay(params.getUpdatedTo()))) continue;
+            if (!withinInstantRange(m.getRemovedAt(),
+                    ArchiveTime.startOfDay(params.getRemovedFrom()),
+                    ArchiveTime.endOfDay(params.getRemovedTo()))) continue;
 
             // Long-text contains
             if (songName != null && !containsLower(m.getSongName(), songName)) continue;
@@ -73,6 +84,7 @@ final class MaqamFilterSupport {
             if (audioFileName != null && !containsLower(m.getAudioFileName(), audioFileName)) continue;
             if (createdBy != null && !containsLower(m.getCreatedBy(), createdBy)) continue;
             if (updatedBy != null && !containsLower(m.getUpdatedBy(), updatedBy)) continue;
+            if (removedBy != null && !containsLower(m.getRemovedBy(), removedBy)) continue;
 
             // Teacher-panel predicates (walk the votes once each)
             List<MaqamTeacherVoteDTO> votes = m.getTeacherVotes() == null ? List.of() : m.getTeacherVotes();
@@ -83,21 +95,52 @@ final class MaqamFilterSupport {
             if (assignmentStatus != null && !matchesAssignment(votes, assignmentStatus)) continue;
             if (voteStatus != null && !voteStatusOf(votes).equals(voteStatus)) continue;
 
+            // Free-text q — broad OR across searchable fields + vote panel; last.
+            if (q != null && !matchesQuery(m, votes, q)) continue;
+
             filtered.add(m);
         }
 
+        // Always finish on a deterministic total order (chosen key, then id ASC
+        // as the tiebreaker) so paging is stable across requests — mirrors the
+        // ", id ASC" that SortSupport appends on the DB fast path.
         Comparator<MaqamResponseDTO> comparator = comparatorFor(params.getSortBy());
         if (comparator != null) {
             if ("desc".equalsIgnoreCase(params.getSortDirection())) {
                 comparator = comparator.reversed();
             }
-            filtered.sort(comparator);
+            comparator = comparator.thenComparing(
+                    MaqamResponseDTO::getId, Comparator.nullsLast(Long::compareTo));
+        } else {
+            comparator = Comparator.comparing(
+                    MaqamResponseDTO::getId, Comparator.nullsLast(Long::compareTo));
         }
+        filtered.sort(comparator);
 
         return filtered;
     }
 
     // ─── Panel predicates ───────────────────────────────────────────────────────
+
+    /** Case-insensitive substring across the record's searchable fields and its
+     *  vote panel — powers the {@code q} free-text filter. */
+    private static boolean matchesQuery(MaqamResponseDTO m, List<MaqamTeacherVoteDTO> votes, String qLower) {
+        if (containsLower(m.getMaqamCode(), qLower)
+                || containsLower(m.getSongName(), qLower)
+                || containsLower(m.getProducer(), qLower)
+                || containsLower(m.getArchiveNote(), qLower)
+                || containsLower(m.getAudioFileName(), qLower)) {
+            return true;
+        }
+        for (MaqamTeacherVoteDTO v : votes) {
+            if (containsLower(v.getMaqamType(), qLower)
+                    || containsLower(v.getTeacherUsername(), qLower)
+                    || containsLower(v.getTeacherDisplayName(), qLower)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static boolean hasTeacher(List<MaqamTeacherVoteDTO> votes, Long teacherUserId) {
         for (MaqamTeacherVoteDTO v : votes) {
@@ -165,17 +208,17 @@ final class MaqamFilterSupport {
     }
 
     static boolean equalsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).equals(needleLower);
+        return value != null && KurdishText.normalize(value).equals(needleLower);
     }
 
     static boolean containsLower(String value, String needleLower) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(needleLower);
+        return value != null && KurdishText.normalize(value).contains(needleLower);
     }
 
     static String lower(String s) {
         if (s == null) return null;
-        String t = s.trim();
-        return t.isEmpty() ? null : t.toLowerCase(Locale.ROOT);
+        String t = KurdishText.normalize(s);
+        return t.isEmpty() ? null : t;
     }
 
     // ─── Sort ─────────────────────────────────────────────────────────────────────

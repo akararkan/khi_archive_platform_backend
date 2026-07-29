@@ -23,7 +23,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,8 +59,8 @@ public class PersonAPI {
      *   tagMatch           — any (default) | all
      *   keywords           — repeat param or comma-separate; matches Person.keywords
      *   keywordMatch       — any (default) | all
-     *   createdFrom / To   — ISO-8601 Instant, inclusive range over createdAt
-     *   updatedFrom / To   — ISO-8601 Instant, inclusive range over updatedAt
+     *   createdFrom / To   — YYYY-MM-DD (archive zone), inclusive range over createdAt
+     *   updatedFrom / To   — YYYY-MM-DD (archive zone), inclusive range over updatedAt
      *
      * With no filter params this returns the cached active list directly (fastest path);
      * with filter params it applies them in-memory over the same cached list.
@@ -91,13 +90,13 @@ public class PersonAPI {
             @RequestParam(value = "keywords", required = false) List<String> keywords,
             @RequestParam(value = "keywordMatch", required = false) String keywordMatch,
             @RequestParam(value = "createdFrom", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdFrom,
             @RequestParam(value = "createdTo", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdTo,
             @RequestParam(value = "updatedFrom", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedFrom,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate updatedFrom,
             @RequestParam(value = "updatedTo", required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedTo,
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate updatedTo,
             Authentication auth,
             HttpServletRequest request
     ) {

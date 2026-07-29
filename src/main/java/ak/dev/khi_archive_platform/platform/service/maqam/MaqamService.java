@@ -425,6 +425,21 @@ public class MaqamService {
                 .toList();
     }
 
+    /**
+     * Distinct maqam-type strings actually voted on active records, most-common
+     * first. Backs a real dropdown for the {@code maqamType} filter so callers
+     * pick from the values teachers have used rather than guessing free-text
+     * spellings (which, being Kurdish free text, drift). Reuses the analytics
+     * {@code maqamTypeDistribution()} aggregate.
+     */
+    @Transactional(readOnly = true)
+    public List<String> listDistinctMaqamTypes() {
+        return maqamRepository.maqamTypeDistribution().stream()
+                .map(row -> (String) row[0])
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
     // ─── Voting (teacher-only) ──────────────────────────────────────────────
 
     public MaqamResponseDTO upsertVote(String maqamCode,
@@ -643,9 +658,12 @@ public class MaqamService {
      */
     private static Pageable effectivePageable(Pageable pageable, MaqamFilterParams p) {
         Sort dbSort = MaqamFilterSupport.resolveDbSort(p.getSortBy(), p.getSortDirection());
-        return dbSort.isSorted()
-                ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), dbSort)
-                : pageable;
+        // Always order by something deterministic: the resolved sort already
+        // carries an "id ASC" tiebreaker; with no sortBy we still pin id ASC so
+        // paging stays stable across requests. (id is in the SELECT of both the
+        // plain and the DISTINCT-join query, so ORDER BY m.id is always legal.)
+        Sort effective = dbSort.isSorted() ? dbSort : Sort.by(Sort.Order.asc("id"));
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), effective);
     }
 
     /** Audit suffix: nothing when empty; {@code filtered=true} when real

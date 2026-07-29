@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * Filter + sort parameters for the active maqam listing
@@ -25,8 +25,11 @@ import java.time.Instant;
  *       {@code producer}, {@code maqamCode}, {@code archiveNote},
  *       {@code audioFileName}, {@code createdBy}, {@code updatedBy}.</li>
  *   <li><b>Numeric range</b> (inclusive, seconds): {@code durationSecondsMin/Max}.</li>
- *   <li><b>Date ranges</b> (inclusive ISO instants): {@code createdFrom/To},
- *       {@code updatedFrom/To}.</li>
+ *   <li><b>Date ranges</b> ({@code YYYY-MM-DD}, resolved to day bounds in the
+ *       archive zone — see {@code ArchiveTime}): {@code createdFrom/To},
+ *       {@code updatedFrom/To}, {@code removedFrom/To}.</li>
+ *   <li><b>Free-text</b>: {@code q} — substring across key fields + vote panel,
+ *       combinable with all filters/sort.</li>
  *   <li><b>Panel filters</b>: {@code teacherUserId} (record has that teacher on
  *       its panel), {@code teacherUsername} (contains, any panel member),
  *       {@code maqamType} (case-insensitive exact — any panel member voted it),
@@ -43,6 +46,16 @@ public class MaqamFilterParams {
     private String sortBy;
     private String sortDirection;
 
+    /**
+     * Optional free-text query — case-insensitive substring matched across the
+     * record's key fields <em>and</em> its vote panel (maqam code, song,
+     * producer, archive note, file name, voted maqam types, teacher names).
+     * Unlike the dedicated ranked {@code /search} endpoint, {@code q} composes
+     * with every filter and sort below, so "type <i>wedding</i> and keep the
+     * unvoted ones" is a single request.
+     */
+    private String q;
+
     // ─── Long-text contains (case-insensitive substring) ──────────────────────────
     private String songName;
     private String producer;
@@ -51,16 +64,25 @@ public class MaqamFilterParams {
     private String audioFileName;
     private String createdBy;
     private String updatedBy;
+    /** Contains-match on who trashed the record. Meaningful on the trash
+     *  listing; inert on the active list. */
+    private String removedBy;
 
     // ─── Numeric range (audio duration, seconds; inclusive) ───────────────────────
     private Long durationSecondsMin;
     private Long durationSecondsMax;
 
-    // ─── Date ranges (inclusive ISO instants) ─────────────────────────────────────
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedTo;
+    // ─── Date ranges (YYYY-MM-DD, resolved in the archive zone) ───────────────────
+    // Bare calendar dates; the backend resolves each day's bounds in
+    // Asia/Baghdad (ArchiveTime), so every client agrees without sending offsets.
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedTo;
+    /** Inclusive range over {@code removedAt} — "what did we trash last week?".
+     *  Meaningful on the trash listing. */
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate removedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate removedTo;
 
     // ─── Teacher-panel filters ────────────────────────────────────────────────────
     /** Records where this user id is on the teacher panel. */
@@ -91,12 +113,14 @@ public class MaqamFilterParams {
      * sort it in memory.
      */
     public boolean hasActiveFilters() {
-        return !blank(songName) || !blank(producer) || !blank(maqamCode)
+        return !blank(q)
+                || !blank(songName) || !blank(producer) || !blank(maqamCode)
                 || !blank(archiveNote) || !blank(audioFileName)
-                || !blank(createdBy) || !blank(updatedBy)
+                || !blank(createdBy) || !blank(updatedBy) || !blank(removedBy)
                 || durationSecondsMin != null || durationSecondsMax != null
                 || createdFrom != null || createdTo != null
                 || updatedFrom != null || updatedTo != null
+                || removedFrom != null || removedTo != null
                 || teacherUserId != null || !blank(teacherUsername)
                 || !blank(maqamType) || !blank(assignmentStatus) || !blank(voteStatus);
     }

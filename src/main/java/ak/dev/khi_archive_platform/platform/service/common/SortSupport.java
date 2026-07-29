@@ -33,18 +33,32 @@ public final class SortSupport {
 
     private SortSupport() {}
 
+    /**
+     * Deterministic tiebreaker appended to <em>every</em> generated order.
+     * {@code ORDER BY <key>} alone is not a total order — PostgreSQL may return
+     * equal-keyed rows in a different sequence per query, so paging a sorted
+     * list could show a row twice and skip another. Appending {@code , id ASC}
+     * makes the order total and paging stable. Every entity that uses this
+     * helper has a {@code Long id} primary key, and the in-memory comparators
+     * mirror this with {@code .thenComparing(getId())}.
+     */
+    private static final String TIEBREAKER = "id";
+
     /** {@code desc} → DESC (case-insensitive); anything else → ASC. */
     public static Sort.Direction direction(String sortDirection) {
         return "desc".equalsIgnoreCase(sortDirection) ? Sort.Direction.DESC : Sort.Direction.ASC;
     }
 
-    /** Case-insensitive order for text columns: {@code ORDER BY LOWER(property)}. */
+    /** Case-insensitive order for text columns: {@code ORDER BY LOWER(property), id ASC}. */
     public static Sort ci(String property, String sortDirection) {
-        return Sort.by(new Sort.Order(direction(sortDirection), property).ignoreCase());
+        return Sort.by(new Sort.Order(direction(sortDirection), property).ignoreCase())
+                .and(Sort.by(Sort.Order.asc(TIEBREAKER)));
     }
 
-    /** Plain order for numeric / date / instant columns (NULL handling = DB native). */
+    /** Plain order for numeric / date / instant columns (NULL handling = DB
+     *  native), with the {@code id ASC} tiebreaker appended. */
     public static Sort plain(String property, String sortDirection) {
-        return Sort.by(new Sort.Order(direction(sortDirection), property));
+        return Sort.by(new Sort.Order(direction(sortDirection), property))
+                .and(Sort.by(Sort.Order.asc(TIEBREAKER)));
     }
 }

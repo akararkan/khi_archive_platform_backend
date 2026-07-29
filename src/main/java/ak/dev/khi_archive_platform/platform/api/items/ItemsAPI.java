@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -61,7 +61,8 @@ public class ItemsAPI {
      *   <li>{@code languages} — repeat. Case-insensitive equality.</li>
      *   <li>{@code isPublic} — true/false. Row-level public flag.</li>
      *   <li>{@code projectVisibleToPublic} — true/false. Project-level public flag.</li>
-     *   <li>{@code createdFrom}, {@code createdTo} — ISO-8601 instants.</li>
+     *   <li>{@code createdFrom}, {@code createdTo} — YYYY-MM-DD, resolved to day
+     *       bounds in the archive zone (Asia/Baghdad).</li>
      *   <li>{@code updatedFrom}, {@code updatedTo} — ISO-8601 instants.</li>
      *   <li>{@code sortBy} — one of: createdAt, updatedAt, title, code,
      *       projectName, personName, type. Default: updatedAt.</li>
@@ -81,10 +82,10 @@ public class ItemsAPI {
             @RequestParam(required = false) List<String> languages,
             @RequestParam(required = false) Boolean isPublic,
             @RequestParam(required = false) Boolean projectVisibleToPublic,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdFrom,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant createdTo,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedFrom,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant updatedTo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate createdTo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate updatedFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate updatedTo,
             @RequestParam(required = false) String sortBy,
             @RequestParam(required = false) String sortDirection,
             @PageableDefault(size = 50) Pageable pageable

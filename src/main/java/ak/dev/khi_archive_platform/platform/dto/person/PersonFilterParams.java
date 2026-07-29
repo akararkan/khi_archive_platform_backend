@@ -2,7 +2,6 @@ package ak.dev.khi_archive_platform.platform.dto.person;
 
 import ak.dev.khi_archive_platform.platform.enums.Gender;
 
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -27,8 +26,8 @@ import java.util.List;
  *   tagMatch             — any (default) | all
  *   keywords             — match against Person.keywords (case-insensitive)
  *   keywordMatch         — any (default) | all
- *   createdFrom/To       — inclusive Instant range over createdAt
- *   updatedFrom/To       — inclusive Instant range over updatedAt
+ *   createdFrom/To       — inclusive YYYY-MM-DD range over createdAt (archive zone Asia/Baghdad)
+ *   updatedFrom/To       — inclusive YYYY-MM-DD range over updatedAt (archive zone Asia/Baghdad)
  */
 public record PersonFilterParams(
         String sortBy,
@@ -47,10 +46,10 @@ public record PersonFilterParams(
         String tagMatch,
         List<String> keywords,
         String keywordMatch,
-        Instant createdFrom,
-        Instant createdTo,
-        Instant updatedFrom,
-        Instant updatedTo
+        LocalDate createdFrom,
+        LocalDate createdTo,
+        LocalDate updatedFrom,
+        LocalDate updatedTo
 ) {
 
     public static final PersonFilterParams EMPTY = new PersonFilterParams(

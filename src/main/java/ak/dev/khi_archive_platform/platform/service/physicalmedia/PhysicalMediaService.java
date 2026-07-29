@@ -307,9 +307,11 @@ public class PhysicalMediaService {
      */
     private static Pageable effectivePageable(Pageable pageable, PhysicalMediaFilterParams p) {
         Sort dbSort = PhysicalMediaFilterSupport.resolveDbSort(p.getSortBy(), p.getSortDirection());
-        return dbSort.isSorted()
-                ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), dbSort)
-                : pageable;
+        // Always order by something deterministic: the resolved sort already
+        // carries an "id ASC" tiebreaker; with no sortBy we still pin id ASC so
+        // paging stays stable across requests instead of trusting DB row order.
+        Sort effective = dbSort.isSorted() ? dbSort : Sort.by(Sort.Order.asc("id"));
+        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), effective);
     }
 
     /** Audit suffix: nothing when empty, {@code filtered=true} on the in-memory

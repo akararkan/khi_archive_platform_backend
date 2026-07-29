@@ -3,7 +3,7 @@ package ak.dev.khi_archive_platform.platform.dto.items;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -54,12 +54,12 @@ public class ItemFilterParams {
     private Boolean projectVisibleToPublic;
 
     /** createdAt range (inclusive). */
-    private Instant createdFrom;
-    private Instant createdTo;
+    private LocalDate createdFrom;
+    private LocalDate createdTo;
 
     /** updatedAt range (inclusive). */
-    private Instant updatedFrom;
-    private Instant updatedTo;
+    private LocalDate updatedFrom;
+    private LocalDate updatedTo;
 
     /**
      * Sort field. Accepts (case-insensitive): {@code createdAt},

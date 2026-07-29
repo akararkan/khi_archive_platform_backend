@@ -1,6 +1,6 @@
 package ak.dev.khi_archive_platform.platform.dto.category;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -11,18 +11,18 @@ import java.util.List;
  *   sortDirection — asc | desc (default asc)
  *
  * Filter:
- *   createdFrom/createdTo — inclusive range over Category.createdAt
- *   updatedFrom/updatedTo — inclusive range over Category.updatedAt
+ *   createdFrom/createdTo — inclusive YYYY-MM-DD range over Category.createdAt (archive zone)
+ *   updatedFrom/updatedTo — inclusive YYYY-MM-DD range over Category.updatedAt (archive zone)
  *   tags                  — match against Category.keywords (case-insensitive)
  *   tagMatch              — any (default) | all
  */
 public record CategoryFilterParams(
         String sortBy,
         String sortDirection,
-        Instant createdFrom,
-        Instant createdTo,
-        Instant updatedFrom,
-        Instant updatedTo,
+        LocalDate createdFrom,
+        LocalDate createdTo,
+        LocalDate updatedFrom,
+        LocalDate updatedTo,
         List<String> tags,
         String tagMatch
 ) {

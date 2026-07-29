@@ -6,7 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -118,20 +118,20 @@ public class TextFilterParams {
     private Integer pageCountMax;
 
     // ─── Date ranges (ISO-8601 instants) ─────────────────────────────────────────
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateCreatedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateCreatedTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant printDateFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant printDateTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateModifiedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateModifiedTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant datePublishedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant datePublishedTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateCopyrightedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant dateCopyrightedTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateCreatedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateCreatedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate printDateFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate printDateTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateModifiedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateModifiedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate datePublishedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate datePublishedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateCopyrightedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate dateCopyrightedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedTo;
 
     public boolean isEmpty() {
         return blank(sortBy) && blank(sortDirection)

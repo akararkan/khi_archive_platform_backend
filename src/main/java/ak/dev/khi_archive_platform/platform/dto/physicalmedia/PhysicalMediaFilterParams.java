@@ -6,7 +6,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 
-import java.time.Instant;
 import java.time.LocalDate;
 
 /**
@@ -36,8 +35,12 @@ import java.time.LocalDate;
  *       {@code durationMinutesMin/Max} (over {@code durationMin}),
  *       {@code trackNumbersMin/Max}, {@code inventoryNumberMin/Max},
  *       {@code rowNumberMin/Max}.</li>
- *   <li><b>Date ranges</b> (inclusive): {@code digitizeDateFrom/To} (ISO date),
- *       {@code createdFrom/To} and {@code updatedFrom/To} (ISO instants).</li>
+ *   <li><b>Date ranges</b> (all {@code YYYY-MM-DD}, inclusive): {@code digitizeDateFrom/To}
+ *       (date column, compared as-is); {@code createdFrom/To}, {@code updatedFrom/To},
+ *       {@code removedFrom/To} (Instant columns — day bounds resolved in the archive
+ *       zone Asia/Baghdad via {@code ArchiveTime}).</li>
+ *   <li><b>Free-text</b>: {@code q} — substring across key fields, combinable
+ *       with all filters/sort.</li>
  * </ul>
  *
  * <p>Note {@code tags} is a single free-text column on this entity (not a list),
@@ -52,6 +55,16 @@ public class PhysicalMediaFilterParams {
 
     private String sortBy;
     private String sortDirection;
+
+    /**
+     * Optional free-text query — case-insensitive substring matched across the
+     * row's key fields (pm code, label, media type, category, title, physical
+     * size, content, owner, tags, track names). Unlike the dedicated
+     * {@code /search} endpoint, {@code q} composes with every filter and sort
+     * below, so "type <i>wedding</i> and keep the not-digitised ones" is a
+     * single request.
+     */
+    private String q;
 
     // ─── Categorical equals (case-insensitive exact) ─────────────────────────────
     private String physicalMediaType;
@@ -90,6 +103,9 @@ public class PhysicalMediaFilterParams {
     private String channelsOrResolution;
     private String createdBy;
     private String updatedBy;
+    /** Contains-match on who trashed the row. Meaningful on the trash listing;
+     *  inert on the active list (active rows have a null removedBy). */
+    private String removedBy;
 
     // ─── Numeric ranges (inclusive) ───────────────────────────────────────────────
     private Integer yearMin;
@@ -104,12 +120,19 @@ public class PhysicalMediaFilterParams {
     private Integer rowNumberMax;
 
     // ─── Date ranges (inclusive) ──────────────────────────────────────────────────
+    // digitizeDate is a date-only column, compared as-is (no zone). The audit
+    // ranges below are YYYY-MM-DD too, but resolved to day bounds in the archive
+    // zone (Asia/Baghdad, via ArchiveTime) because they filter Instant columns.
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate digitizeDateFrom;
     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate digitizeDateTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant createdTo;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedFrom;
-    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) private Instant updatedTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate createdTo;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate updatedTo;
+    /** Inclusive range over {@code removedAt} — "what did we trash last week?".
+     *  Meaningful on the trash listing. */
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate removedFrom;
+    @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) private LocalDate removedTo;
 
     /**
      * True only when no filter/sort param is set at all — the fully unfiltered,
@@ -127,7 +150,8 @@ public class PhysicalMediaFilterParams {
      * sort it in memory.
      */
     public boolean hasActiveFilters() {
-        return !blank(physicalMediaType) || !blank(mediaCategory) || !blank(physicalSize)
+        return !blank(q)
+                || !blank(physicalMediaType) || !blank(mediaCategory) || !blank(physicalSize)
                 || !blank(extension) || !blank(formatCodec) || !blank(source)
                 || !blank(digitization) || digitizationCode != null
                 || needToClear != null || needToClearCode != null
@@ -137,7 +161,8 @@ public class PhysicalMediaFilterParams {
                 || !blank(sizeGB) || !blank(playbackModel) || !blank(captureInterface)
                 || !blank(signalInterface) || !blank(ingestSoftware) || !blank(bitOrColorDepth)
                 || !blank(sampleOrFrameRate) || !blank(channelsOrResolution)
-                || !blank(createdBy) || !blank(updatedBy)
+                || !blank(createdBy) || !blank(updatedBy) || !blank(removedBy)
+                || removedFrom != null || removedTo != null
                 || yearMin != null || yearMax != null
                 || durationMinutesMin != null || durationMinutesMax != null
                 || trackNumbersMin != null || trackNumbersMax != null
