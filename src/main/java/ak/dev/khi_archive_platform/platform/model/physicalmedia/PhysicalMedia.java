@@ -91,11 +91,11 @@ public class PhysicalMedia {
     @Column(name = "physical_media_type", length = 200)
     private String physicalMediaType;
 
-    /** {@code جۆری بابەت(Media Category)} — high-level bucket: Audio, Video, … */
+    /** {@code Media Category} — high-level bucket: Audio, Video, … */
     @Column(name = "media_category", length = 200)
     private String mediaCategory;
 
-    /** {@code ناوی بابەت (Title)} — display title in Sorani Kurdish/free-text. */
+    /** {@code Title} — display title in Sorani Kurdish/free-text. */
     @Column(name = "title", columnDefinition = "TEXT")
     private String title;
 
@@ -105,48 +105,48 @@ public class PhysicalMedia {
     @Column(name = "size_gb", length = 200)
     private String sizeGB;
 
-    /** {@code کۆد (Physical Label)} — physical sticker/label on the artefact.
+    /** {@code Physical Label} — physical sticker/label on the artefact.
      *  Not globally unique — only meaningful within a media type. */
     @Column(name = "physical_label", length = 200)
     private String physicalLabel;
 
-    /** {@code قەبارە (Physical Size)} — material size of the artefact
+    /** {@code Physical Size} — material size of the artefact
      *  (e.g. big / medium / normal / small). Distinct from {@link #sizeGB},
      *  the digital file size. Backed by the {@code physical_size} column,
      *  migrated once from the legacy {@code size} column. */
     @Column(name = "physical_size", length = 200)
     private String physicalSize;
 
-    /** {@code ناوەڕۆک (Content)} — free-text content description. */
+    /** {@code Content} — free-text content description. */
     @Column(name = "content", columnDefinition = "TEXT")
     private String content;
 
-    /** {@code تێبینی بەشی ئارشیڤ Archive Dep Note} — archive department note. */
+    /** {@code Archive Dep Note} — archive department note. */
     @Column(name = "archive_dep_note", columnDefinition = "TEXT")
     private String archiveDepNote;
 
-    /** {@code دیجیتایز Digitization} — 0=NOT_DIGITIZED, 1=DIGITIZED, 2=DUPLICATED. */
+    /** {@code Digitization} — 0=NOT_DIGITIZED, 1=DIGITIZED, 2=DUPLICATED. */
     @Enumerated(EnumType.STRING)
     @Column(name = "digitization", length = 20)
     private DigitizationStatus digitization;
 
-    /** {@code بەرهەمهێن(خاوەن) Owner} — owner / producer attribution. */
+    /** {@code Owner} — owner / producer attribution. */
     @Column(name = "owner", columnDefinition = "TEXT")
     private String owner;
 
-    /** {@code ساڵ Year} — year on the artefact label. */
+    /** {@code Year} — year on the artefact label. */
     @Column(name = "year")
     private Integer year;
 
-    /** {@code درێژایی خولەک Duration Min} — runtime in minutes. */
+    /** {@code Duration Min} — runtime in minutes. */
     @Column(name = "duration_min")
     private Integer durationMin;
 
-    /** {@code ژمارەی تراک Track Numbers} — count of tracks. */
+    /** {@code Track Numbers} — count of tracks. */
     @Column(name = "track_numbers")
     private Integer trackNumbers;
 
-    /** {@code ناوی تراکەکان Track Name} — free-text track listing. */
+    /** {@code Track Name} — free-text track listing. */
     @Column(name = "track_name", columnDefinition = "TEXT")
     private String trackName;
 
@@ -186,21 +186,21 @@ public class PhysicalMedia {
     @Column(name = "format_codec", length = 200)
     private String formatCodec;
 
-    /** {@code ڕێکەوتی دیجیتایز/ گواستنەوە Digitize Date}. Stored as a calendar
+    /** {@code Digitize Date}. Stored as a calendar
      *  date because the sheet only carries day-precision and the importer
      *  must not invent a time-zone. */
     @Column(name = "digitize_date")
     private LocalDate digitizeDate;
 
-    /** {@code تاگ Tags} — free-text tag list (comma/slash-separated as found). */
+    /** {@code Tags} — free-text tag list (comma/slash-separated as found). */
     @Column(name = "tags", columnDefinition = "TEXT")
     private String tags;
 
-    /** {@code خاوێنکردن Need to Clear} — 0/1 in Excel, stored as a boolean. */
+    /** {@code Need to Clear} — 0/1 in Excel, stored as a boolean. */
     @Column(name = "need_to_clear")
     private Boolean needToClear;
 
-    /** {@code تێبینی بەشی تیجیتایز Capture Dep Note} — capture department note. */
+    /** {@code Capture Dep Note} — capture department note. */
     @Column(name = "capture_dep_note", columnDefinition = "TEXT")
     private String captureDepNote;
 

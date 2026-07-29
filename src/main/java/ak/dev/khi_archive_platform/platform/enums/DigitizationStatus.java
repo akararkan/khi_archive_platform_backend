@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * Encodes the {@code دیجیتایز Digitization} column from the physical-media
+ * Encodes the {@code Digitization} column from the physical-media
  * inventory sheet. The Excel uses integer codes (0/1/2); we store them as a
  * Postgres enum so analytics queries can read a stable label without having
  * to remember what each integer meant.

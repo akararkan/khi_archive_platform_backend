@@ -28,7 +28,7 @@ import java.util.Map;
  *       <br>tier 3 = sum of per-token best similarity over primary cols + child tables</li>
  * </ol>
  *
- * <p>This makes "دیوانی نالی" match "دیوانی نالی — Track 1" cleanly (both
+ * <p>This makes "a title" match "a title — Track 1" cleanly (both
  * tokens found in the title), and "Hejar Track 9" match by combining a hit
  * on poet=Hejar with a hit on the title containing "Track 9".
  */

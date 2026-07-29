@@ -84,7 +84,7 @@ public class UserAPI {
      * Marks every active Session row for the current user as inactive,
      * and blacklists the current token so it stops working immediately.
      *
-     * Called by UserProfile.vue → "دەرچوون لە ھەموو ئامێرەکان"
+     * Called by UserProfile.vue → "log out of all devices"
      */
     @PostMapping("/logout-all")
     public ResponseEntity<String> logoutAll(

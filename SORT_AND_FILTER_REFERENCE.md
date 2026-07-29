@@ -224,11 +224,12 @@ The same operator families appear on every `*FilterParams`:
 **Script normalization (Kurdish / Arabic).** Every string **equals** and
 **contains** comparison above (including `q`) is matched on a canonical form
 (`KurdishText`), applied to *both* the stored value and your filter value — not
-a raw byte compare. It folds interchangeable codepoints (Arabic Yeh `ي` ↔
-Kurdish Yeh `ی`, Arabic Kaf `ك` ↔ Keheh `ک`), strips tatweel / joiners /
-diacritics / zero-width characters, collapses whitespace, and lower-cases Latin.
-So a `mediaCategory` / `physicalSize` / `maqamType` (or any text) filter matches
-regardless of which Yeh/Kaf codepoint or stray space was typed. It does **not**
+a raw byte compare. It folds interchangeable codepoints (Arabic Yeh `U+064A` ↔
+Kurdish Yeh `U+06CC`, Arabic Kaf `U+0643` ↔ Keheh `U+06A9`), strips tatweel /
+joiners / diacritics / zero-width characters, collapses whitespace, and
+lower-cases Latin. So a `mediaCategory` / `physicalSize` / `maqamType` (or any
+text) filter matches regardless of which Yeh/Kaf codepoint or stray space was
+typed. It does **not**
 bridge genuine spelling differences (a missing or different letter) — use the
 distinct-values dropdown (`GET /api/maqam/maqam-types`) for that. Collection
 filters (tags/keywords/genres) rely on the on-save canonicaliser, not this pass.
