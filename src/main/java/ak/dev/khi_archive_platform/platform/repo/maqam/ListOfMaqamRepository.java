@@ -22,6 +22,16 @@ public interface ListOfMaqamRepository extends JpaRepository<ListOfMaqam, Long> 
 
     Page<ListOfMaqam> findAllByRemovedAtIsNotNull(Pageable pageable);
 
+    /** Full active set for the in-memory filter path (non-teacher callers).
+     *  Used only when the caller supplied filter/sort params; the unfiltered
+     *  list stays on the paged {@link #findAllByRemovedAtIsNull(Pageable)}. */
+    List<ListOfMaqam> findAllByRemovedAtIsNull();
+
+    /** Full trashed set for the in-memory filter path on the admin trash
+     *  listing. Used only when filter/sort params are supplied; the unfiltered
+     *  trash list stays on the paged {@link #findAllByRemovedAtIsNotNull(Pageable)}. */
+    List<ListOfMaqam> findAllByRemovedAtIsNotNull();
+
     /** Active maqam records across the archive (removed_at IS NULL). */
     long countByRemovedAtIsNull();
 

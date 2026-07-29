@@ -1,6 +1,7 @@
 package ak.dev.khi_archive_platform.platform.service.physicalmedia;
 
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaUpdateRequestDTO;
 import ak.dev.khi_archive_platform.platform.enums.PhysicalMediaAuditAction;
@@ -9,10 +10,13 @@ import ak.dev.khi_archive_platform.platform.exceptions.PhysicalMediaValidationEx
 import ak.dev.khi_archive_platform.platform.model.physicalmedia.PhysicalMedia;
 import ak.dev.khi_archive_platform.platform.repo.physicalmedia.PhysicalMediaRepository;
 import ak.dev.khi_archive_platform.platform.service.common.CodeGenLock;
+import ak.dev.khi_archive_platform.platform.service.common.PaginationSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -191,18 +195,79 @@ public class PhysicalMediaService {
         return mapper.toResponse(entity);
     }
 
+    /**
+     * Active rows with optional filter + sort. Three cases, cheapest first:
+     * <ul>
+     *   <li><b>No params</b> — the original fast DB-paged query with the
+     *       default order; one page loaded. Byte-for-byte the pre-filter
+     *       behaviour.</li>
+     *   <li><b>Sort only</b> (a {@code sortBy} on a DB-mappable key, no
+     *       filters) — still the fast DB-paged query, but with the order pushed
+     *       into the database via {@link #effectivePageable}; one page loaded,
+     *       no full-set scan.</li>
+     *   <li><b>Filters present, or a derived-key sort</b> ({@code digitization})
+     *       — load the full active set, map to DTOs, filter+sort in memory via
+     *       {@link PhysicalMediaFilterSupport}, then slice with
+     *       {@link PaginationSupport}. This entity is DB-paged (no read-cache),
+     *       so the full-set load happens only here; the inventory is a few
+     *       thousand rows, microseconds to scan.</li>
+     * </ul>
+     * The DB and in-memory orderings are built to agree (see {@code SortSupport}),
+     * so a row lands in the same place whichever path runs.
+     */
     @Transactional(readOnly = true)
-    public Page<PhysicalMediaResponseDTO> listActive(Pageable pageable, Authentication auth, HttpServletRequest request) {
-        Page<PhysicalMedia> page = repository.findAllByRemovedAtIsNull(pageable);
-        auditService.record(null, PhysicalMediaAuditAction.LIST, auth, request, "size=" + page.getNumberOfElements());
-        return page.map(mapper::toResponse);
+    public Page<PhysicalMediaResponseDTO> listActive(Pageable pageable,
+                                                     PhysicalMediaFilterParams filter,
+                                                     Authentication auth,
+                                                     HttpServletRequest request) {
+        PhysicalMediaFilterParams params = filter == null ? new PhysicalMediaFilterParams() : filter;
+
+        Page<PhysicalMediaResponseDTO> page;
+        if (needsInMemory(params)) {
+            List<PhysicalMediaResponseDTO> all = repository.findAllByRemovedAtIsNullOrderByIdAsc()
+                    .stream().map(mapper::toResponse).toList();
+            List<PhysicalMediaResponseDTO> view = PhysicalMediaFilterSupport.applyFiltersAndSort(all, params);
+            page = PaginationSupport.sliceList(view, pageable);
+        } else {
+            page = repository.findAllByRemovedAtIsNull(effectivePageable(pageable, params))
+                    .map(mapper::toResponse);
+        }
+
+        auditService.record(null, PhysicalMediaAuditAction.LIST, auth, request,
+                "size=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements()
+                        + auditSuffix(params));
+        return page;
     }
 
+    /**
+     * Trashed rows with the same optional filter + sort as {@link #listActive}.
+     * Same two-path shape: unfiltered → fast DB-paged trash query; filtered →
+     * load the full trashed set, filter+sort in memory, slice.
+     */
     @Transactional(readOnly = true)
-    public Page<PhysicalMediaResponseDTO> listTrash(Pageable pageable, Authentication auth, HttpServletRequest request) {
-        Page<PhysicalMedia> page = repository.findAllByRemovedAtIsNotNull(pageable);
-        auditService.record(null, PhysicalMediaAuditAction.LIST, auth, request, "trash size=" + page.getNumberOfElements());
-        return page.map(mapper::toResponse);
+    public Page<PhysicalMediaResponseDTO> listTrash(Pageable pageable,
+                                                    PhysicalMediaFilterParams filter,
+                                                    Authentication auth,
+                                                    HttpServletRequest request) {
+        PhysicalMediaFilterParams params = filter == null ? new PhysicalMediaFilterParams() : filter;
+
+        Page<PhysicalMediaResponseDTO> page;
+        if (needsInMemory(params)) {
+            List<PhysicalMediaResponseDTO> all = repository.findAllByRemovedAtIsNotNullOrderByIdAsc()
+                    .stream().map(mapper::toResponse).toList();
+            List<PhysicalMediaResponseDTO> view = PhysicalMediaFilterSupport.applyFiltersAndSort(all, params);
+            page = PaginationSupport.sliceList(view, pageable);
+        } else {
+            page = repository.findAllByRemovedAtIsNotNull(effectivePageable(pageable, params))
+                    .map(mapper::toResponse);
+        }
+
+        auditService.record(null, PhysicalMediaAuditAction.LIST, auth, request,
+                "trash size=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements()
+                        + auditSuffix(params));
+        return page;
     }
 
     @Transactional(readOnly = true)
@@ -222,6 +287,37 @@ public class PhysicalMediaService {
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    /**
+     * A request must take the in-memory path when it carries real filters, or
+     * when it sorts by a key the DB can't express (physical media:
+     * {@code digitization}, ordered by a derived code). A pure sort-only
+     * request on a DB-mappable key stays on the fast DB-paged path.
+     */
+    private static boolean needsInMemory(PhysicalMediaFilterParams p) {
+        return p.hasActiveFilters()
+                || PhysicalMediaFilterSupport.requiresInMemorySort(p.getSortBy(), p.getSortDirection());
+    }
+
+    /**
+     * The pageable to hand the DB fast path: the incoming page/size, but with
+     * the sort replaced by the {@code sortBy}-resolved order when present.
+     * Falls back to the incoming pageable (its {@code @PageableDefault}) when
+     * no {@code sortBy} was supplied.
+     */
+    private static Pageable effectivePageable(Pageable pageable, PhysicalMediaFilterParams p) {
+        Sort dbSort = PhysicalMediaFilterSupport.resolveDbSort(p.getSortBy(), p.getSortDirection());
+        return dbSort.isSorted()
+                ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), dbSort)
+                : pageable;
+    }
+
+    /** Audit suffix: nothing when empty, {@code filtered=true} on the in-memory
+     *  path, {@code sorted=true} on the DB fast-sort path. */
+    private static String auditSuffix(PhysicalMediaFilterParams p) {
+        if (p.isEmpty()) return "";
+        return needsInMemory(p) ? " filtered=true" : " sorted=true";
+    }
 
     private PhysicalMedia mustFindActive(String pmCode) {
         return repository.findByPmCodeAndRemovedAtIsNull(pmCode)

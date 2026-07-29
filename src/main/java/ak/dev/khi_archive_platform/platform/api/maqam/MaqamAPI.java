@@ -1,6 +1,7 @@
 package ak.dev.khi_archive_platform.platform.api.maqam;
 
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenEndRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenProgressRequestDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
@@ -53,15 +54,31 @@ public class MaqamAPI {
 
     // ─── Reading ─────────────────────────────────────────────────────────────
 
-    /** Active records the caller can see. Teachers get only their assigned
-     *  records; admins/employees see all active records. */
+    /**
+     * Active records the caller can see, with optional filter + sort. Teachers
+     * get only their assigned records; admins/employees see all active records —
+     * that visibility split holds whether or not filters are applied.
+     *
+     * <p>Filter params bind from the query string into {@link MaqamFilterParams}
+     * — the same {@code @ModelAttribute} style as {@code /api/audio}. With no
+     * params this is the original fast DB-paged listing.
+     *
+     * <p>Examples:
+     * <pre>
+     *   GET /api/maqam?songName=layla&amp;sortBy=createdAt&amp;sortDirection=desc
+     *   GET /api/maqam?voteStatus=none&amp;assignmentStatus=assigned
+     *   GET /api/maqam?maqamType=Rast&amp;sortBy=songName
+     *   GET /api/maqam?teacherUserId=42&amp;durationSecondsMin=120
+     * </pre>
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('maqam:read')")
     public ResponseEntity<Page<MaqamResponseDTO>> listActive(
             @PageableDefault(size = 50) Pageable pageable,
+            @ModelAttribute MaqamFilterParams filter,
             Authentication auth,
             HttpServletRequest request) {
-        return ResponseEntity.ok(maqamService.listActive(pageable, auth, request));
+        return ResponseEntity.ok(maqamService.listActive(pageable, filter, auth, request));
     }
 
     /** Free-text search across song name / producer / maqam code. */

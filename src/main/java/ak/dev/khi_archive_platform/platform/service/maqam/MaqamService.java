@@ -2,6 +2,7 @@ package ak.dev.khi_archive_platform.platform.service.maqam;
 
 import ak.dev.khi_archive_platform.S3Service;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSummaryDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
@@ -27,7 +28,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Service;
@@ -304,20 +307,103 @@ public class MaqamService {
         return mapper.toResponse(record, buildStreamUrl(request, record.getMaqamCode()), true);
     }
 
+    /**
+     * Active records the caller can see, with optional filter + sort.
+     *
+     * <p>The role-scoped visibility split is preserved on <em>both</em> paths:
+     * teachers only ever see records they are assigned to, admins/employees see
+     * every active record.
+     *
+     * <p>Two paths, chosen by {@link MaqamFilterParams#isEmpty()}:
+     * <ul>
+     *   <li><b>No params</b> — the original fast DB-paged query; only one page
+     *       is loaded. Behaviour is exactly what it was before filters.</li>
+     *   <li><b>Any param present</b> — load the caller's full visible set, map
+     *       to DTOs (each carrying its per-request {@code streamUrl}), run the
+     *       same in-memory filter+sort every other entity uses via
+     *       {@link MaqamFilterSupport}, then slice into a {@link Page} with
+     *       {@link PaginationSupport}. No read-cache is used here — the
+     *       per-request stream URL and the high write-rate of votes/listen
+     *       tracking make a shared DTO cache a poor fit, so the full-set load
+     *       runs only on the filtered path.</li>
+     * </ul>
+     */
     @Transactional(readOnly = true)
-    public Page<MaqamResponseDTO> listActive(Pageable pageable, Authentication auth, HttpServletRequest request) {
-        Page<ListOfMaqam> page = isTeacher(auth)
-                ? maqamRepository.findAssignedToTeacher(currentUserId(auth), pageable)
-                : maqamRepository.findAllByRemovedAtIsNull(pageable);
-        auditService.record(null, MaqamAuditAction.LIST, auth, request, "size=" + page.getNumberOfElements());
-        return page.map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true));
+    public Page<MaqamResponseDTO> listActive(Pageable pageable,
+                                             MaqamFilterParams filter,
+                                             Authentication auth,
+                                             HttpServletRequest request) {
+        MaqamFilterParams params = filter == null ? new MaqamFilterParams() : filter;
+        boolean teacher = isTeacher(auth);
+        boolean sortPresent = params.getSortBy() != null && !params.getSortBy().isBlank();
+
+        // Teachers read through a DISTINCT join query that PostgreSQL won't let
+        // us ORDER BY LOWER(...) on, so a sorting teacher falls to the in-memory
+        // engine over their (small) assigned set. Admins/employees push the sort
+        // straight to the DB.
+        boolean inMemory = params.hasActiveFilters()
+                || MaqamFilterSupport.requiresInMemorySort(params.getSortBy(), params.getSortDirection())
+                || (teacher && sortPresent);
+
+        Page<MaqamResponseDTO> page;
+        if (inMemory) {
+            List<ListOfMaqam> rows = teacher
+                    ? maqamRepository.findAssignedToTeacher(currentUserId(auth), Pageable.unpaged()).getContent()
+                    : maqamRepository.findAllByRemovedAtIsNull();
+            List<MaqamResponseDTO> all = rows.stream()
+                    .map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true))
+                    .toList();
+            List<MaqamResponseDTO> view = MaqamFilterSupport.applyFiltersAndSort(all, params);
+            page = PaginationSupport.sliceList(view, pageable);
+        } else {
+            Pageable effective = effectivePageable(pageable, params);
+            Page<ListOfMaqam> src = teacher
+                    ? maqamRepository.findAssignedToTeacher(currentUserId(auth), effective)
+                    : maqamRepository.findAllByRemovedAtIsNull(effective);
+            page = src.map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true));
+        }
+
+        auditService.record(null, MaqamAuditAction.LIST, auth, request,
+                "size=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements()
+                        + auditSuffix(params, inMemory));
+        return page;
     }
 
+    /**
+     * Soft-trashed records with the same optional filter + sort as
+     * {@link #listActive}. This endpoint is admin-only ({@code maqam:delete}),
+     * so there is no teacher-visibility branch — every trashed record is in
+     * scope. Same two-path shape: unfiltered → fast DB-paged trash query;
+     * filtered → load the full trashed set, filter+sort in memory, slice.
+     */
     @Transactional(readOnly = true)
-    public Page<MaqamResponseDTO> listTrash(Pageable pageable, Authentication auth, HttpServletRequest request) {
-        Page<ListOfMaqam> page = maqamRepository.findAllByRemovedAtIsNotNull(pageable);
-        auditService.record(null, MaqamAuditAction.LIST, auth, request, "trash size=" + page.getNumberOfElements());
-        return page.map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true));
+    public Page<MaqamResponseDTO> listTrash(Pageable pageable,
+                                            MaqamFilterParams filter,
+                                            Authentication auth,
+                                            HttpServletRequest request) {
+        MaqamFilterParams params = filter == null ? new MaqamFilterParams() : filter;
+        boolean inMemory = params.hasActiveFilters()
+                || MaqamFilterSupport.requiresInMemorySort(params.getSortBy(), params.getSortDirection());
+
+        Page<MaqamResponseDTO> page;
+        if (inMemory) {
+            List<MaqamResponseDTO> all = maqamRepository.findAllByRemovedAtIsNotNull()
+                    .stream()
+                    .map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true))
+                    .toList();
+            List<MaqamResponseDTO> view = MaqamFilterSupport.applyFiltersAndSort(all, params);
+            page = PaginationSupport.sliceList(view, pageable);
+        } else {
+            page = maqamRepository.findAllByRemovedAtIsNotNull(effectivePageable(pageable, params))
+                    .map(m -> mapper.toResponse(m, buildStreamUrl(request, m.getMaqamCode()), true));
+        }
+
+        auditService.record(null, MaqamAuditAction.LIST, auth, request,
+                "trash size=" + page.getNumberOfElements()
+                        + " total=" + page.getTotalElements()
+                        + auditSuffix(params, inMemory));
+        return page;
     }
 
     @Transactional(readOnly = true)
@@ -549,6 +635,26 @@ public class MaqamService {
     }
 
     // ─── Helpers ────────────────────────────────────────────────────────────
+
+    /**
+     * The pageable to hand the DB fast path: the incoming page/size, with the
+     * sort replaced by the {@code sortBy}-resolved order when present. Falls
+     * back to the incoming pageable when no {@code sortBy} was supplied.
+     */
+    private static Pageable effectivePageable(Pageable pageable, MaqamFilterParams p) {
+        Sort dbSort = MaqamFilterSupport.resolveDbSort(p.getSortBy(), p.getSortDirection());
+        return dbSort.isSorted()
+                ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), dbSort)
+                : pageable;
+    }
+
+    /** Audit suffix: nothing when empty; {@code filtered=true} when real
+     *  filters ran; else {@code sorted=in-memory} / {@code sorted=db}. */
+    private static String auditSuffix(MaqamFilterParams p, boolean inMemory) {
+        if (p.isEmpty()) return "";
+        if (p.hasActiveFilters()) return " filtered=true";
+        return inMemory ? " sorted=in-memory" : " sorted=db";
+    }
 
     private ListOfMaqam mustFindActive(String maqamCode) {
         return maqamRepository.findByMaqamCodeAndRemovedAtIsNull(maqamCode)

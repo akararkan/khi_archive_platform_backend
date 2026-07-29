@@ -1,6 +1,7 @@
 package ak.dev.khi_archive_platform.platform.api.physicalmedia;
 
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaCreateRequestDTO;
+import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaImportReportDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaNextNumberDTO;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaResponseDTO;
@@ -20,6 +21,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,16 +56,32 @@ public class PhysicalMediaAPI {
 
     // ─── Reading ─────────────────────────────────────────────────────────────
 
-    /** Active rows. Page size defaults to 50; max 200 enforced by JPA.
-     *  Default sort is {@code id ASC} so the table reads "row 1 first" in
-     *  every UI that doesn't override the {@code ?sort=} parameter. */
+    /**
+     * Active rows with optional filter + sort. Page size defaults to 50; max
+     * 200 enforced by JPA. Default sort is {@code id ASC} so the table reads
+     * "row 1 first" when no {@code sortBy} is supplied.
+     *
+     * <p>Filter params bind from the query string into
+     * {@link PhysicalMediaFilterParams} — same {@code @ModelAttribute} style as
+     * {@code /api/audio}. See that DTO for the full catalog of supported
+     * fields. With no params this is the original fast DB-paged listing.
+     *
+     * <p>Examples:
+     * <pre>
+     *   GET /api/physical-media?physicalMediaType=Audio%20Cassette&amp;sortBy=inventoryNumber&amp;sortDirection=asc
+     *   GET /api/physical-media?digitization=NOT_DIGITIZED&amp;needToClear=true
+     *   GET /api/physical-media?mediaCategory=Video&amp;yearMin=1980&amp;yearMax=1999
+     *   GET /api/physical-media?title=wedding&amp;owner=kaka&amp;sortBy=year&amp;sortDirection=desc
+     * </pre>
+     */
     @GetMapping
     @PreAuthorize("hasAuthority('physical_media:read')")
     public ResponseEntity<Page<PhysicalMediaResponseDTO>> listActive(
             @PageableDefault(size = 50, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
+            @ModelAttribute PhysicalMediaFilterParams filter,
             Authentication auth,
             HttpServletRequest request) {
-        return ResponseEntity.ok(service.listActive(pageable, auth, request));
+        return ResponseEntity.ok(service.listActive(pageable, filter, auth, request));
     }
 
     /** Free-text search across pmCode, label, media type, title, content, owner, tags. */

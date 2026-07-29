@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.platform.api.maqam;
 
+import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamListenSessionDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamResponseDTO;
 import ak.dev.khi_archive_platform.platform.dto.maqam.MaqamTeacherAssignmentDTO;
@@ -51,14 +52,17 @@ public class AdminMaqamAPI {
         return ResponseEntity.ok(maqamService.assignTeachers(maqamCode, dto, auth, request));
     }
 
-    /** Soft-trashed records. */
+    /** Soft-trashed records, with the same optional filter + sort as the
+     *  active list ({@link MaqamFilterParams}, bound via {@code @ModelAttribute}).
+     *  Admin-only, so every trashed record is in scope regardless of role. */
     @GetMapping("/trash")
     @PreAuthorize("hasAuthority('maqam:delete')")
     public ResponseEntity<Page<MaqamResponseDTO>> trash(
             @PageableDefault(size = 100) Pageable pageable,
+            @ModelAttribute MaqamFilterParams filter,
             Authentication auth,
             HttpServletRequest request) {
-        return ResponseEntity.ok(maqamService.listTrash(pageable, auth, request));
+        return ResponseEntity.ok(maqamService.listTrash(pageable, filter, auth, request));
     }
 
     @PostMapping("/{maqamCode}/restore")

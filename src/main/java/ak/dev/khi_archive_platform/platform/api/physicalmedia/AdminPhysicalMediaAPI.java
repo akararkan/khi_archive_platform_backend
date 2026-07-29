@@ -1,5 +1,6 @@
 package ak.dev.khi_archive_platform.platform.api.physicalmedia;
 
+import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaFilterParams;
 import ak.dev.khi_archive_platform.platform.dto.physicalmedia.PhysicalMediaResponseDTO;
 import ak.dev.khi_archive_platform.platform.service.physicalmedia.PhysicalMediaService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +14,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,15 +33,18 @@ public class AdminPhysicalMediaAPI {
 
     private final PhysicalMediaService service;
 
-    /** Trash listing. Same ascending-by-id default as the active list so the
-     *  UI shows "earliest trashed first" without an explicit sort param. */
+    /** Trash listing with the same optional filter + sort as the active list
+     *  ({@link PhysicalMediaFilterParams}, bound via {@code @ModelAttribute}).
+     *  Same ascending-by-id default so the UI shows "earliest trashed first"
+     *  when no {@code sortBy} is supplied. */
     @GetMapping("/trash")
     @PreAuthorize("hasAuthority('physical_media:delete')")
     public ResponseEntity<Page<PhysicalMediaResponseDTO>> trash(
             @PageableDefault(size = 100, sort = "id", direction = Sort.Direction.ASC) Pageable pageable,
+            @ModelAttribute PhysicalMediaFilterParams filter,
             Authentication auth,
             HttpServletRequest request) {
-        return ResponseEntity.ok(service.listTrash(pageable, auth, request));
+        return ResponseEntity.ok(service.listTrash(pageable, filter, auth, request));
     }
 
     @PostMapping("/{pmCode}/restore")

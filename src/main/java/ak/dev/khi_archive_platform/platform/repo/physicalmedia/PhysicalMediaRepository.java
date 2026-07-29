@@ -22,6 +22,17 @@ public interface PhysicalMediaRepository extends JpaRepository<PhysicalMedia, Lo
 
     Page<PhysicalMedia> findAllByRemovedAtIsNotNull(Pageable pageable);
 
+    /** Full active set (id-ascending) for the in-memory filter path. Used only
+     *  when the caller supplied filter/sort params; the unfiltered list stays
+     *  on the paged {@link #findAllByRemovedAtIsNull(Pageable)} query. */
+    List<PhysicalMedia> findAllByRemovedAtIsNullOrderByIdAsc();
+
+    /** Full trashed set (id-ascending) — the trash-listing analogue of
+     *  {@link #findAllByRemovedAtIsNullOrderByIdAsc()}. Used only on the
+     *  filtered path; the unfiltered trash list stays on the paged
+     *  {@link #findAllByRemovedAtIsNotNull(Pageable)} query. */
+    List<PhysicalMedia> findAllByRemovedAtIsNotNullOrderByIdAsc();
+
     long countByRemovedAtIsNull();
 
     long countByRemovedAtIsNotNull();
