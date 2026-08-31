@@ -5,11 +5,13 @@ import ak.dev.khi_archive_platform.common.exceptions.ApiErrorResponses;
 import ak.dev.khi_archive_platform.common.exceptions.ErrorCategory;
 import ak.dev.khi_archive_platform.common.exceptions.ErrorCode;
 import ak.dev.khi_archive_platform.user.configs.AppCorsProperties;
+import com.auth0.jwt.JWT;
 import com.auth0.jwt.exceptions.AlgorithmMismatchException;
 import com.auth0.jwt.exceptions.InvalidClaimException;
 import com.auth0.jwt.exceptions.JWTDecodeException;
 import com.auth0.jwt.exceptions.SignatureVerificationException;
 import com.auth0.jwt.exceptions.TokenExpiredException;
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -101,77 +103,39 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            String token = resolveToken(request);
-            if (!hasText(token)) {
+            List<TokenCandidate> candidates = resolveTokenCandidates(request);
+            if (candidates.isEmpty()) {
                 // No token present — let downstream filters decide. The auth
                 // entry-point produces a uniform 401 if the endpoint is protected.
                 filterChain.doFilter(request, response);
                 return;
             }
-            String username;
 
-            try {
-                // This will throw a specific auth0 exception for each failure mode.
-                username = jwtTokenProvider.getSubject(token);
-            } catch (TokenExpiredException ex) {
-                logger.warn("JWT expired for request: {}", request.getRequestURI());
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_EXPIRED, ErrorCategory.AUTHENTICATION,
-                        "Your session has expired.",
-                        "Sign in again to continue.",
-                        request.getRequestURI(),
-                        Map.of("reason", "expired"));
-                return;
-            } catch (SignatureVerificationException ex) {
-                logger.warn("JWT signature mismatch for request: {}", request.getRequestURI());
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
-                        "Token signature is invalid.",
-                        "Sign in again to obtain a fresh token.",
-                        request.getRequestURI(),
-                        Map.of("reason", "signature_mismatch"));
-                return;
-            } catch (AlgorithmMismatchException ex) {
-                logger.warn("JWT algorithm mismatch for request: {}", request.getRequestURI());
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
-                        "Token uses an unexpected signing algorithm.",
-                        "Sign in again to obtain a fresh token.",
-                        request.getRequestURI(),
-                        Map.of("reason", "algorithm_mismatch"));
-                return;
-            } catch (InvalidClaimException ex) {
-                logger.warn("JWT claim invalid for request: {} — {}", request.getRequestURI(), ex.getMessage());
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
-                        "Token contains an invalid claim.",
-                        "Sign in again to obtain a fresh token.",
-                        request.getRequestURI(),
-                        Map.of("reason", "invalid_claim"));
-                return;
-            } catch (JWTDecodeException ex) {
-                logger.warn("JWT could not be decoded for request: {}", request.getRequestURI());
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_MALFORMED, ErrorCategory.AUTHENTICATION,
-                        "Token is malformed.",
-                        "Clear the auth cookie / Authorization header and sign in again.",
-                        request.getRequestURI(),
-                        Map.of("reason", "malformed"));
-                return;
-            } catch (Exception ex) {
-                logger.error("Invalid JWT for request: {}", request.getRequestURI(), ex);
-                jwtCookieService.clearAuthCookie(response);
-                sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
-                        ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
-                        "Token verification failed.",
-                        "Sign in again to obtain a fresh token.",
-                        request.getRequestURI(),
-                        null);
+            // Verify each candidate and keep the first that passes. A browser can
+            // hold several cookies under the same name (a stale one left by an
+            // earlier deployment, for instance) and sends them all on one request,
+            // so a single dead token must not veto a valid one sitting behind it.
+            String token = null;
+            String username = null;
+            TokenCandidate rejected = null;
+            Exception failure = null;
+
+            for (TokenCandidate candidate : candidates) {
+                try {
+                    // This throws a specific auth0 exception for each failure mode.
+                    username = jwtTokenProvider.getSubject(candidate.token());
+                    token = candidate.token();
+                    break;
+                } catch (Exception ex) {
+                    if (failure == null) {
+                        rejected = candidate;
+                        failure = ex;
+                    }
+                }
+            }
+
+            if (token == null) {
+                rejectToken(request, response, rejected, failure);
                 return;
             }
 
@@ -255,11 +219,131 @@ public class JWTAuthenticationFilter extends OncePerRequestFilter {
         return str != null && !str.trim().isEmpty();
     }
 
-    private String resolveToken(HttpServletRequest request) {
+    /**
+     * Every token the client sent, header first, then each auth cookie. The
+     * header used to short-circuit the cookie entirely; collecting both lets
+     * the caller fall through to a working token instead of failing on the
+     * first stale one.
+     */
+    private List<TokenCandidate> resolveTokenCandidates(HttpServletRequest request) {
+        List<TokenCandidate> candidates = new ArrayList<>();
+
         String authorizationHeader = request.getHeader(AUTHORIZATION);
         if (hasText(authorizationHeader) && authorizationHeader.startsWith(TOKEN_PREFIX)) {
-            return authorizationHeader.substring(TOKEN_PREFIX.length()).trim();
+            String headerToken = authorizationHeader.substring(TOKEN_PREFIX.length()).trim();
+            if (hasText(headerToken)) {
+                candidates.add(new TokenCandidate("header", headerToken));
+            }
         }
-        return jwtCookieService.resolveToken(request);
+
+        for (String cookieToken : jwtCookieService.resolveTokens(request)) {
+            if (candidates.stream().noneMatch(candidate -> candidate.token().equals(cookieToken))) {
+                candidates.add(new TokenCandidate("cookie", cookieToken));
+            }
+        }
+        return candidates;
     }
+
+    /**
+     * Answers 401 for a token that failed verification, classifying the auth0
+     * exception into a specific {@link ErrorCode}. Every response names the
+     * token's origin, because clearing the auth cookie does nothing for a
+     * client that keeps replaying a dead token in the Authorization header —
+     * it has to be told which copy to drop.
+     */
+    private void rejectToken(HttpServletRequest request,
+                             HttpServletResponse response,
+                             TokenCandidate candidate,
+                             Exception failure) throws IOException {
+        String uri = request.getRequestURI();
+        String source = candidate == null ? "unknown" : candidate.source();
+        jwtCookieService.clearAuthCookie(response);
+
+        if (failure instanceof TokenExpiredException) {
+            logger.warn("JWT expired for request: {} (source={})", uri, source);
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                    ErrorCode.TOKEN_EXPIRED, ErrorCategory.AUTHENTICATION,
+                    "Your session has expired.",
+                    "Sign in again to continue.",
+                    uri,
+                    Map.of("reason", "expired", "source", source));
+            return;
+        }
+
+        if (failure instanceof SignatureVerificationException) {
+            // Signed with a different key: either jwt.secret changed under a
+            // restart, or the token was minted by another environment. Logging
+            // the token's own claims next to the active key fingerprint says
+            // which of the two it is without ever exposing the secret.
+            logger.warn("JWT signature mismatch for request: {} (source={}, {}, active key fingerprint={}) "
+                            + "— token was signed with a different jwt.secret",
+                    uri, source, describeUnverified(candidate), jwtTokenProvider.getSecretFingerprint());
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                    ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
+                    "Token signature is invalid.",
+                    "Sign in again to obtain a fresh token.",
+                    uri,
+                    Map.of("reason", "signature_mismatch", "source", source));
+            return;
+        }
+
+        if (failure instanceof AlgorithmMismatchException) {
+            logger.warn("JWT algorithm mismatch for request: {} (source={})", uri, source);
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                    ErrorCode.TOKEN_INVALID_SIGNATURE, ErrorCategory.AUTHENTICATION,
+                    "Token uses an unexpected signing algorithm.",
+                    "Sign in again to obtain a fresh token.",
+                    uri,
+                    Map.of("reason", "algorithm_mismatch", "source", source));
+            return;
+        }
+
+        if (failure instanceof InvalidClaimException) {
+            logger.warn("JWT claim invalid for request: {} (source={}) — {}", uri, source, failure.getMessage());
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                    ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
+                    "Token contains an invalid claim.",
+                    "Sign in again to obtain a fresh token.",
+                    uri,
+                    Map.of("reason", "invalid_claim", "source", source));
+            return;
+        }
+
+        if (failure instanceof JWTDecodeException) {
+            logger.warn("JWT could not be decoded for request: {} (source={})", uri, source);
+            sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                    ErrorCode.TOKEN_MALFORMED, ErrorCategory.AUTHENTICATION,
+                    "Token is malformed.",
+                    "Clear the auth cookie / Authorization header and sign in again.",
+                    uri,
+                    Map.of("reason", "malformed", "source", source));
+            return;
+        }
+
+        logger.error("Invalid JWT for request: {} (source={})", uri, source, failure);
+        sendErrorResponse(response, HttpStatus.UNAUTHORIZED,
+                ErrorCode.TOKEN_INVALID, ErrorCategory.AUTHENTICATION,
+                "Token verification failed.",
+                "Sign in again to obtain a fresh token.",
+                uri,
+                Map.of("source", source));
+    }
+
+    /**
+     * Reads a rejected token's claims without verifying it, purely for the log
+     * line. Tells you whose session broke and when it was issued — enough to
+     * confirm the token predates the current signing key.
+     */
+    private String describeUnverified(TokenCandidate candidate) {
+        if (candidate == null) return "token unavailable";
+        try {
+            DecodedJWT decoded = JWT.decode(candidate.token());
+            return "token subject=" + decoded.getSubject() + ", issuedAt=" + decoded.getIssuedAtAsInstant();
+        } catch (Exception ex) {
+            return "token undecodable";
+        }
+    }
+
+    /** One token the client sent, tagged with where it came from. */
+    private record TokenCandidate(String source, String token) { }
 }
