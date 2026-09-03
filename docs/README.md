@@ -18,10 +18,24 @@ page here was written by reading the Java source, and the source stays the final
 
 ## Contents
 
-`docs/` holds no documents of its own besides this index — every page lives in
-[`external/`](./external/README.md), [`internal/`](./internal/README.md),
+Besides this index, `docs/` holds two documents of its own —
+[`TECHNOLOGY_STACK.md`](./TECHNOLOGY_STACK.md) and
+[`FRONTEND_INTEGRATION.md`](./FRONTEND_INTEGRATION.md), described just below. Every other page lives
+in [`external/`](./external/README.md), [`internal/`](./internal/README.md),
 [`diagrams/`](./diagrams/README.md) or [`database/`](./database/README.md). The full set is listed
 below in reading order so you can find the right page without opening three indexes.
+
+### `TECHNOLOGY_STACK.md` — what this backend is built from
+
+| File | What it covers | Read it when |
+|---|---|---|
+| [`TECHNOLOGY_STACK.md`](./TECHNOLOGY_STACK.md) | Every technology in the backend and why it was chosen: Spring Boot 4 and JPA, PostgreSQL doubling as the search engine through `pg_trgm` GIN indexes, the 15 tuned Caffeine caches that replace Redis, the S3 byte-proxy model, the pure-Java media extractors, Apache POI, the async logging pool — plus the frontend's stack and an honest list of dependencies that are declared but never used | You are new to the project, evaluating it, weighing a new dependency, or wondering why something was built the way it was |
+
+### `FRONTEND_INTEGRATION.md` — the backend ↔ frontend seam
+
+| File | What it covers | Read it when |
+|---|---|---|
+| [`FRONTEND_INTEGRATION.md`](./FRONTEND_INTEGRATION.md) | How this backend and `khi_archive_platform_frontend` fit together: the axios client contract, where the token lives, why media paths are never S3 URLs, the two-layer CORS setup and its exact-match allowlist, every environment variable on both sides, and a step-by-step local run on the development Mac | You are setting the stack up on a new machine, adding an origin, chasing a CORS or 401 error, or wiring a new endpoint all the way through to a page |
 
 ### `external/` — public and signed-in-visitor API
 

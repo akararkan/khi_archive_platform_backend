@@ -10,6 +10,12 @@ the Java source, then checked back against it.
 One flat folder, no subfolders: 45 `.svg` files and this index. Open an SVG in a browser, or click
 the filename in the tables below — GitHub renders SVG inline.
 
+All 45 are also collected in [`khi-diagrams-kurdish.pdf`](./khi-diagrams-kurdish.pdf) — one diagram
+per page, each with a short description in Kurdish. Page sizes follow each diagram's own aspect
+ratio, so nothing is shrunk to fit a fixed sheet, and the artwork stays vector, so it can be zoomed
+without blurring. Rebuild it by re-running the generator against this README's tables if a diagram
+changes.
+
 ## The whole schema on one sheet
 
 [**`er-00-full-schema.svg`**](./er-00-full-schema.svg) — **all 59 tables in a single diagram**,
