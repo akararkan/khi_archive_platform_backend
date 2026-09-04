@@ -1,7 +1,7 @@
 # External API Documentation
 
 > **Audience:** public website, anonymous visitors, third-party clients ·
-> **Base paths:** `/api/guest`, `/api/auth`, `/api/user`, `/api/corrections` ·
+> **Base paths:** `/api/guest`, `/api/guest/media`, `/api/auth`, `/api/user`, `/api/corrections` ·
 > **Scope:** everything callable without a staff permission
 
 This folder documents the **external** surface of the KHI Archive Platform backend: the read-only
@@ -29,6 +29,8 @@ live in [`../internal/`](../internal/README.md) and are not for public consumpti
 | [`07-streaming.md`](./07-streaming.md) | The five byte proxies (`/stream`, `/view`, `/read`, `/cover`), where their URLs come from, the visibility gate they apply, `Range` and `206` behavior, `ETag` revalidation, response headers, and page-level usage | An audio or video player cannot seek, an image refetches on every load instead of returning `304`, or you are tempted to build an S3 URL by hand |
 | [`08-corrections.md`](./08-corrections.md) | `POST /api/corrections` plus the submitter's own views: the correction object, `CorrectionMediaType` values, choosing `targetField`, the status lifecycle, and what a submitter can and cannot see | You are building the "Help Us" form, or a resubmission fails with `CORRECTION_ALREADY_PROCESSED` and you need the lifecycle rules |
 | [`09-recipes.md`](./09-recipes.md) | Eight end-to-end curl walkthroughs chaining the endpoints: home page, search-as-you-type, project page, audio playback, text plus cover, register and log in with a cookie jar, submit and poll a correction, and paginate a large result set | You want a known-good sequence to copy rather than assembling four endpoint pages yourself, or a multi-call flow works in isolation but breaks when chained |
+| [`10-website-search.md`](./10-website-search.md) | `GET /api/guest/media/search` and `GET /api/guest/media/{type}/{code}` — one keyword across audio, video, image and text, merged and ranked on a single scale, with per-kind tab counts, refine facets over the matched set, and a kind-agnostic detail lookup | You are building the public website's search page — the visitor picks the platform as their search source and expects the media this archive holds about their keyword, whichever kind it is |
+| [`11-search-frontend-guide.md`](./11-search-frontend-guide.md) | The implementation guide for the search UI: the service module, URL-as-state, the fetch hook with abort and race-guard, the tab bar, one result card for four kinds, the refine panel, the detail page, RTL handling, and a QA matrix | You are writing the search page itself and want the files, in order, with the code that goes in them |
 
 ## Start here
 
@@ -38,8 +40,11 @@ live in [`../internal/`](../internal/README.md) and are not for public consumpti
    null omission apply to nearly every endpoint that follows.
 3. [`02-errors.md`](./02-errors.md) — wire up error handling once, against the closed `ErrorCode`
    set, before you write feature code.
-4. The endpoint page for what you are building: [`04-discovery.md`](./04-discovery.md) for search
-   and browse, [`05-catalog.md`](./05-catalog.md) plus [`06-media.md`](./06-media.md) for detail
+4. The endpoint page for what you are building:
+   [`10-website-search.md`](./10-website-search.md) for the website's search page and
+   [`11-search-frontend-guide.md`](./11-search-frontend-guide.md) to build its UI,
+   [`04-discovery.md`](./04-discovery.md) for trending, autocomplete and the browse feed,
+   [`05-catalog.md`](./05-catalog.md) plus [`06-media.md`](./06-media.md) for detail
    pages, [`07-streaming.md`](./07-streaming.md) for playback,
    [`03-authentication.md`](./03-authentication.md) for sign-in.
 5. [`09-recipes.md`](./09-recipes.md) — check your call sequence against a working walkthrough.

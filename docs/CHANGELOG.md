@@ -30,6 +30,48 @@ same range, since no prior state existed.
 
 ## [Unreleased]
 
+### Added
+
+- **Website media search** — `GET /api/guest/media/search` answers the public site's search box in
+  one call: a keyword goes in, and audio, video, image and text results come back merged into a
+  single ranked list, alongside per-kind counts for the tab bar. Anonymous, like the rest of
+  `/api/guest/**`. Filters (`projectCode`, `categoryCode`, `personCode`, `language`, `dialect`,
+  `region`, `subject`, `genre`, `tag`, `keyword`, `dateFrom`/`dateTo`, `decade`) compose with the
+  keyword and with each other; `type` selects which kinds appear in the list without ever narrowing
+  the counts; `groupBy=type` additionally splits the same results into per-kind sections;
+  `facets=true` adds refine counts computed over the matched set rather than over the whole
+  archive; `include=full` attaches the complete kind-specific DTO.
+- Every result is one `GuestMediaHitDTO` — the same flat card shape whatever the kind — so the
+  website renders a mixed list with a single component. It carries `type` + `code` for routing,
+  `mediaUrl` and `thumbnailUrl` as host-relative byte-proxy paths, `detailUrl`, and `matchedIn`,
+  which names the field groups the query hit so a result can explain itself.
+- Cross-kind ranking. The four per-kind SQL searches produce four incomparable orderings, so a
+  mixed list could not be ordered from them. `GuestMediaRelevanceScorer` re-scores every hit on one
+  scale — weighted field groups × match strength, averaged across query tokens, plus bonuses for
+  full-token coverage, a verbatim phrase in a title, and current trending — with the database's own
+  position folded in as the tiebreak.
+- **Kind-agnostic detail** — `GET /api/guest/media/{type}/{code}` opens any result from the pair its
+  card already carries, so the frontend no longer routes `audio` to `/audios/{code}` and `text` to
+  `/texts/{code}` itself. Returns the identical per-kind DTO on the matching field, the flat card on
+  `item`, and a "more from this collection" rail on `related` (interleaved across kinds, capped at
+  12, skippable with `related=false`). Accepts the public aliases `sound`, `photo`, `file` and
+  `document`.
+- Both endpoints reuse `GuestSearchService` for every read, so public-visibility rules, trash rules,
+  fuzzy matching and trending stamps are exactly the ones the rest of the guest API already applies
+  — this adds reach, not access. A non-public or trashed item stays invisible, and the 404 for an
+  unknown code, an unknown type and a hidden item are indistinguishable.
+- [`docs/external/10-website-search.md`](./external/10-website-search.md) documents both endpoints
+  and carries the website integration guide: wiring the source selector, drawing the tab bar from
+  `counts`, one card component for four kinds, opening a result, and building the refine panel from
+  `facets`.
+- [`docs/external/11-search-frontend-guide.md`](./external/11-search-frontend-guide.md) is the
+  frontend implementation guide for that API: the files to create in order, the service module and
+  why repeated array params need `paramsSerializer: { indexes: null }`, URL-as-state so a result
+  page can be shared and reached with the back button, a fetch hook with both an abort and a
+  request-counter race guard, the tab bar / result card / refine panel / pagination components,
+  the kind-agnostic detail page, media-URL resolution, Kurdish and RTL handling, and performance,
+  accessibility, QA and common-mistake checklists.
+
 ### Fixed
 
 - Authentication no longer fails on a request that carries a valid token behind a stale one.

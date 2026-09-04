@@ -51,6 +51,8 @@ below in reading order so you can find the right page without opening three inde
 | [`external/07-streaming.md`](./external/07-streaming.md) | The byte proxies `/stream`, `/view`, `/read`, `/cover`, `Range` handling, ETags and cache headers | An `<audio>` or `<video>` element will not seek, or an image URL returns `404` for an anonymous visitor |
 | [`external/08-corrections.md`](./external/08-corrections.md) | `POST /api/corrections`, the submitter's own list and detail, the media-type catalog, and the status lifecycle | You are building the "Help Us" form, or a submitter asks why their suggestion never changed the record |
 | [`external/09-recipes.md`](./external/09-recipes.md) | Eight end-to-end `curl` walkthroughs chaining the endpoints above, from home page to correction polling | You would rather copy a working call sequence than assemble one from reference pages |
+| [`external/10-website-search.md`](./external/10-website-search.md) | `GET /api/guest/media/search` and `GET /api/guest/media/{type}/{code}` — one keyword across audio, video, image and text, merged and ranked on one scale, with per-kind tab counts, refine facets and a kind-agnostic detail lookup, plus the website integration guide | You are building the public website's search page and want the media the archive holds for a keyword, whichever kind it is |
+| [`external/11-search-frontend-guide.md`](./external/11-search-frontend-guide.md) | The frontend implementation guide for the search page: service module, URL-as-state, fetch hook, tab bar, one card for four kinds, refine panel, detail page, RTL, and a QA matrix | You are writing the search UI and want the files in order with the code that goes in them |
 
 ### `internal/` — staff back office, database and operations
 
@@ -258,7 +260,7 @@ flowchart LR
   E --> E1["00-overview, 01-conventions"]
   E --> E2["02-errors, 03-authentication"]
   E --> E3["04-discovery, 05-catalog, 06-media"]
-  E --> E4["07-streaming, 08-corrections, 09-recipes"]
+  E --> E4["07-streaming, 08-corrections, 09-recipes,<br/>10-website-search, 11-search-frontend-guide"]
 
   I --> I0["00-overview, 01-conventions"]
   I --> I1["02-authorization, 03-errors"]

@@ -39,6 +39,12 @@ these calls. Sending a valid cookie changes nothing about the response.
 | `GET` | `/api/guest/facets` | none | Sidebar filter counts |
 | `GET` | `/api/guest/feed` | none | Media-only browse feed, grouped into four kind sections |
 
+> **Building the website's search results page?** These five endpoints predate it and each answers
+> only part of the question. `GET /api/guest/media/search` answers all of it in one call — every
+> media kind merged and ranked on a single scale, with per-kind tab counts and refine facets over
+> the matched set. See [`10-website-search.md`](./10-website-search.md). `/suggest` below is still
+> the right endpoint for the autocomplete dropdown, and `/feed` for a keyword-less browse.
+
 ## How discovery feeds trending
 
 ```mermaid

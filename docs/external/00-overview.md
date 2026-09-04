@@ -4,6 +4,7 @@
 > **Base path:** `/api` ·
 > **Source:** `src/main/java/ak/dev/khi_archive_platform/user/configs/SecurityConfig.java`,
 > `src/main/java/ak/dev/khi_archive_platform/platform/api/guest/GuestSearchAPI.java`,
+> `src/main/java/ak/dev/khi_archive_platform/platform/api/guest/GuestMediaSearchAPI.java`,
 > `src/main/resources/application.yaml`
 
 The KHI Archive Platform backend is a Spring Boot 4.0.5 / Java 21 application that serves a
@@ -19,6 +20,7 @@ The staff back-office surface is documented separately in [`../internal/`](../in
 | Public catalog browsing — projects, categories, persons | `GET /api/guest/projects`, `/categories`, `/persons` | No |
 | Public media listings and detail — audios, videos, texts, images | `GET /api/guest/audios`, `/videos`, `/texts`, `/images` | No |
 | Search, autocomplete, facets, trending, grouped feed | `GET /api/guest/search`, `/suggest`, `/facets`, `/trending`, `/feed` | No |
+| Website search — one keyword, all four media kinds merged and ranked, plus a kind-agnostic detail lookup | `GET /api/guest/media/search`, `/api/guest/media/{type}/{code}` | No |
 | Media playback and reading — byte-streaming proxies | `GET /api/guest/{kind}/{code}/stream`, `/view`, `/read`, `/cover` | No |
 | Registration and login | `POST /api/auth/register`, `/register-with-image`, `/login` | No |
 | Logout, own sessions, own profile | `POST /api/auth/logout`, `/logout-all`; `/api/auth/sessions/**`; `/api/user/**` | Yes |
@@ -62,6 +64,8 @@ The concrete public endpoints behind those matchers:
 | `GET` | `/api/guest/suggest` | `GuestSearchAPI` |
 | `GET` | `/api/guest/facets` | `GuestSearchAPI` |
 | `GET` | `/api/guest/feed` | `GuestSearchAPI` |
+| `GET` | `/api/guest/media/search` | `GuestMediaSearchAPI` |
+| `GET` | `/api/guest/media/{type}/{code}` | `GuestMediaSearchAPI` |
 | `GET` | `/api/guest/projects` | `GuestSearchAPI` |
 | `GET` | `/api/guest/projects/{projectCode}` | `GuestSearchAPI` |
 | `GET` | `/api/guest/projects/{projectCode}/media` | `GuestSearchAPI` |

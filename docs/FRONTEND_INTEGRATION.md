@@ -152,6 +152,11 @@ answer `206 Partial Content`. See [`external/07-streaming.md`](./external/07-str
 because Spring binds repeated arrays as `?types=image&types=audio`, not `?types[0]=image`. Any new
 service that sends an array filter must do the same.
 
+Building the search page is the place this bites first: `tag`, `keyword`, `subject` and `genre` all
+repeat. See [`external/11-search-frontend-guide.md`](./external/11-search-frontend-guide.md) for the
+full search UI — service module, URL-as-state, fetch hook, components — against the API documented
+in [`external/10-website-search.md`](./external/10-website-search.md).
+
 ---
 
 ## 3. CORS — read this before changing an origin
